@@ -884,6 +884,25 @@ function renderSettings(){
   $('#reset').onclick=()=>{ if(!confirm('Erase all of your training data on this account?')) return; S=blank(); save(); ui.dayId=null; ui.logging=false; ui.homeDay=null; ui.focusId=null; renderSettings(); toast('Cleared'); };
 }
 
+function resetUi(){
+  ui.date=todayISO();
+  ui.dayId=null;
+  ui.progEx=null;
+  ui.focusId=null;
+  ui.pad={};
+  ui.edit=null;
+  ui.restUntil=0;
+  ui.restTotal=0;
+  ui.restLabel='';
+  ui.undo=null;
+  ui.logging=false;
+  ui.homeDay=null;
+  if(restTick){ clearInterval(restTick); restTick=null; }
+  tab='log';
+  document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('active', x.dataset.tab==='log'));
+  document.body.classList.remove('tab-log','resting');
+  document.body.style.paddingBottom='';
+}
 function showLogin(msg){
   document.body.classList.add('auth');
   document.body.classList.remove('tab-log','resting');
@@ -907,6 +926,7 @@ async function onSession(session){
     if(USER && S && allowSync) await pushFor(USER.id, S);
     clearTimeout(syncT);
     USER=null; S=null; allowSync=false;
+    resetUi();
     showLogin();
     return;
   }
@@ -915,6 +935,7 @@ async function onSession(session){
   if(USER && S && allowSync) await pushFor(USER.id, S);
   clearTimeout(syncT);
   USER=u; S=null; allowSync=false;
+  resetUi();
   document.body.classList.remove('auth');
   $('#view').innerHTML='<div class="card muted">Loading your data…</div>';
   await loadRemote();
