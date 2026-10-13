@@ -79,3 +79,7 @@ dialog::backdrop{background:rgba(0,0,0,.35)}
 .b-add{border-color:#a7f3c4}.b-hold{border-color:#fcd34d}.b-stall{border-color:#fca5a5}
 .cal div.d{background:#eceef2;color:#0006}
 @media(min-width:900px){.tabs{background:none;box-shadow:none}}
+
+body.auth .tabs{display:none}
+.login{max-width:420px;margin:40px auto}
+.login input{width:100%;box-sizing:border-box}

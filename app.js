@@ -1,4 +1,4 @@
-/* Min-Max Tracker — static SPA, localStorage only. */
+/* Min-Max Tracker — static SPA, Supabase sync + localStorage offline cache. */
 (function(){
 'use strict';
 const SPEC = window.MINMAX_SPEC;
@@ -36,13 +36,27 @@ function prescription(week, dayId){
 function weekInfo(w){ return P.weeks.find(x=>x.week===w) || null; }
 
 /* ---------- state ---------- */
-let S = load();
+const SB_URL='https://ftoypdcokckdnrtxlnvj.supabase.co';
+const SB_KEY='sb_publishable_KD0g-iX3A8zy1GxOtniXcg_hJ-eyi-e';
+const sb = window.supabase.createClient(SB_URL, SB_KEY, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:true, flowType:'implicit'}});
+let USER=null, syncT=null, syncState='';
+let S = null;
 function blank(){ return {version:1, settings:{currentWeek:null, anchorDate:null, nextDayOverride:'armsDelts', defaultTime:'12:00'}, sessions:[], measurements:[], baselineBests:[], seeded:false}; }
 function load(){
   try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && s.version) return s; } catch(e){}
   const s = blank(); seed(s); localStorage.setItem(KEY, JSON.stringify(s)); return s;
 }
-function save(){ localStorage.setItem(KEY, JSON.stringify(S)); renderHeader(); }
+function localGet(){ try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && s.version) return s; } catch(e){} return null; }
+function save(){ localStorage.setItem(KEY, JSON.stringify(S)); renderHeader(); queueSync(); }
+function queueSync(){ if(!USER) return; clearTimeout(syncT); syncT=setTimeout(pushRemote, 1200); }
+async function pushRemote(){ if(!USER) return; const {error}=await sb.from('tracker_data').upsert({user_id:USER.id, data:S}); syncState=error?'offline – will retry':'synced'; if(error){ console.warn('sync failed',error.message); clearTimeout(syncT); syncT=setTimeout(pushRemote,15000);} }
+window.addEventListener('online', ()=>queueSync());
+async function loadRemote(){
+  const {data,error}=await sb.from('tracker_data').select('data').eq('user_id',USER.id).maybeSingle();
+  if(error){ S = localGet() || load(); syncState='offline'; toast('Offline – using local cache'); return; }
+  if(data && data.data && data.data.version){ S=data.data; localStorage.setItem(KEY, JSON.stringify(S)); syncState='synced'; return; }
+  S = localGet() || load(); localStorage.setItem(KEY, JSON.stringify(S)); await pushRemote();
+}
 
 function seed(s){
   const A = SPEC.athleteState;
@@ -515,8 +529,8 @@ function renderSettings(){
   </div>
   <div class="card"><h2>Backup</h2>
     <div class="row"><button class="btn pri" id="exp">Export JSON</button><label class="btn" style="display:inline-flex;align-items:center;color:var(--txt);font-size:15px;font-weight:600;border:1px solid var(--line);border-radius:12px;padding:10px 16px;background:var(--card2)">Import JSON<input type="file" id="imp" accept="application/json,.json" hidden></label></div>
-    <div class="small muted" style="margin-top:8px">Data lives only in this browser (localStorage). Export regularly.</div>
-    <div class="row" style="margin-top:12px"><button class="btn danger sm" id="reset">Reset to seeded data</button></div>
+    <div class="small muted" style="margin-top:8px">Synced to your account (${esc(USER?USER.email:'')}); this browser keeps an offline copy. ${esc(syncState)}</div>
+    <div class="row" style="margin-top:12px"><button class="btn sm" id="signout">Sign out</button><button class="btn danger sm" id="reset">Reset to seeded data</button></div>
   </div>
   <div class="card small muted">Program structure and numbers from the coach-bot tracking spec (${esc(SPEC.meta.program)}, generated ${esc(SPEC.meta.generated)}). Units: kg. This app logs training; it doesn't give medical advice — if something hurts, use the discomfort flag and a substitution, and check with a professional.</div>`;
   v.querySelectorAll('[data-w]').forEach(b=>b.onclick=()=>{ st.currentWeek=+b.dataset.w; st.anchorDate=todayISO(); save(); renderSettings(); toast('Week set to '+b.dataset.w); });
@@ -526,8 +540,36 @@ function renderSettings(){
   v.querySelectorAll('[data-m]').forEach(i=>i.onchange=()=>{ const ws=mondayOf(todayISO()); let m=S.measurements.find(x=>x.weekStart===ws); if(!m){m={weekStart:ws};S.measurements.push(m);} m[i.dataset.m]=num(i.value); save(); toast('Saved'); });
   $('#exp').onclick=()=>{ const blob=new Blob([JSON.stringify({exportedAt:new Date().toISOString(),app:'minmax-tracker',data:S},null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`minmax-backup-${todayISO()}.json`; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000); };
   $('#imp').onchange=async ev=>{ const f=ev.target.files[0]; if(!f) return; try{ const j=JSON.parse(await f.text()); const d=j.data||j; if(!d.sessions||!d.settings) throw new Error('not a Min-Max backup'); if(!confirm(`Replace current data with ${d.sessions.length} sessions from backup?`)) return; S=d; save(); render(); toast('Imported ✓'); }catch(e){ alert('Import failed: '+e.message); } };
+  $('#signout').onclick=async()=>{ clearTimeout(syncT); await pushRemote(); await sb.auth.signOut(); localStorage.removeItem(KEY); toast('Signed out'); };
   $('#reset').onclick=()=>{ if(!confirm('Erase all data and restore seeded sessions?')) return; S=blank(); seed(S); save(); ui.dayId=null; renderSettings(); toast('Reset'); };
 }
 
-render();
+function showLogin(msg){
+  document.body.classList.add('auth');
+  $('#view').innerHTML = `<div class="card login"><h2>Sign in</h2>
+    <p class="small muted">Your training data syncs to your account. Get a magic link by email, or use a password.</p>
+    <label>Email</label><input type="email" id="lgEmail" autocomplete="email" placeholder="you@example.com">
+    <label style="margin-top:10px">Password <span class="muted small">(optional – leave empty for magic link)</span></label><input type="password" id="lgPw" autocomplete="current-password">
+    <div class="row" style="margin-top:14px;flex-wrap:wrap"><button class="btn pri" id="lgGo">Send magic link</button><button class="btn" id="lgUp">Create account</button></div>
+    <div id="lgMsg" class="small" style="margin-top:10px">${esc(msg||'')}</div></div>`;
+  const m=t=>$('#lgMsg').textContent=t, em=()=>$('#lgEmail').value.trim(), pw=()=>$('#lgPw').value;
+  const redirect = location.origin + location.pathname;
+  $('#lgPw').oninput=()=>$('#lgGo').textContent=pw()?'Sign in':'Send magic link';
+  $('#lgGo').onclick=async()=>{ if(!em()) return m('Enter your email.'); m('Working…');
+    if(pw()){ const {error}=await sb.auth.signInWithPassword({email:em(),password:pw()}); m(error?error.message:''); }
+    else { const {error}=await sb.auth.signInWithOtp({email:em(),options:{emailRedirectTo:redirect}}); m(error?error.message:'Check your inbox for the sign-in link.'); } };
+  $('#lgUp').onclick=async()=>{ if(!em()||pw().length<6) return m('Enter email and a password (6+ chars).'); m('Working…');
+    const {data,error}=await sb.auth.signUp({email:em(),password:pw(),options:{emailRedirectTo:redirect}}); m(error?error.message:(data.session?'':'Check your inbox to confirm your email.')); };
+}
+async function onSession(session){
+  const u = session && session.user;
+  if(!u){ USER=null; S=null; showLogin(); return; }
+  if(USER && USER.id===u.id) return;
+  USER=u; document.body.classList.remove('auth');
+  $('#view').innerHTML='<div class="card muted">Loading your data…</div>';
+  await loadRemote(); render();
+  if(location.hash.includes('access_token')) history.replaceState(null,'',location.pathname);
+}
+sb.auth.onAuthStateChange((ev,session)=>{ setTimeout(()=>onSession(session),0); });
+
 })();
