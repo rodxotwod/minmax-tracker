@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f6f7f9">
+<title>Min-Max Tracker</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">Min‑Max <span id="hdrWeek" class="pill"></span></div>
+  <div id="hdrNext" class="muted small"></div>
+</header>
+<main id="view"></main>
+<nav class="tabs">
+  <button data-tab="log" class="active"><span>🏋️</span>Log</button>
+  <button data-tab="history"><span>🗓️</span>History</button>
+  <button data-tab="progress"><span>📈</span>Progress</button>
+  <button data-tab="settings"><span>⚙️</span>Settings</button>
+</nav>
+<div id="toast" class="toast"></div>
+<dialog id="dlg"></dialog>
+<script src="data/spec.js"></script>
+<script src="vendor/chart.umd.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
