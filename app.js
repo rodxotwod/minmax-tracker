@@ -3,7 +3,7 @@
 'use strict';
 const SPEC = window.MINMAX_SPEC;
 const P = SPEC.program;
-const KEY = 'minmax-tracker-v1';
+const AC = window.MinMaxAccount;
 const SEQ = MinMaxNext.trainingDays(P.weeklySplit);
 const DAY_LABEL = {upper1:'Upper 1',lower1:'Lower 1',upper2:'Upper 2',lower2:'Lower 2',armsDelts:'Arms + Delts'};
 const MUSCLE_LABEL = m => m.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
@@ -39,50 +39,43 @@ function weekInfo(w){ return P.weeks.find(x=>x.week===w) || null; }
 const SB_URL='https://ftoypdcokckdnrtxlnvj.supabase.co';
 const SB_KEY='sb_publishable_KD0g-iX3A8zy1GxOtniXcg_hJ-eyi-e';
 const sb = window.supabase.createClient(SB_URL, SB_KEY, {auth:{persistSession:true, autoRefreshToken:true, storage:window.localStorage, storageKey:'minmax-auth', detectSessionInUrl:true, flowType:'implicit'}});
-let USER=null, syncT=null, syncState='';
+let USER=null, syncT=null, syncState='', allowSync=false;
 let S = null;
-function blank(){ return {version:1, settings:{currentWeek:null, anchorDate:null, nextDayOverride:null, nextDayPinned:false, defaultTime:'12:00'}, sessions:[], measurements:[], baselineBests:[], seeded:false}; }
-function load(){
-  try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && s.version) return s; } catch(e){}
-  const s = blank(); seed(s); localStorage.setItem(KEY, JSON.stringify(s)); return s;
+function blank(){ return AC.blankTracker(); }
+function save(){
+  if(!USER || !S) return;
+  allowSync = true;
+  AC.writeScoped(localStorage, USER.id, S);
+  renderHeader();
+  queueSync();
 }
-function localGet(){ try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && s.version) return s; } catch(e){} return null; }
-function save(){ localStorage.setItem(KEY, JSON.stringify(S)); renderHeader(); queueSync(); }
-function queueSync(){ if(!USER) return; clearTimeout(syncT); syncT=setTimeout(pushRemote, 1200); }
-async function pushRemote(){ if(!USER) return; const {error}=await sb.from('tracker_data').upsert({user_id:USER.id, data:S}); syncState=error?'offline – will retry':'synced'; if(error){ console.warn('sync failed',error.message); clearTimeout(syncT); syncT=setTimeout(pushRemote,15000);} }
+function queueSync(){
+  if(!allowSync || !USER || !S) return;
+  const userId = USER.id, payload = S;
+  clearTimeout(syncT);
+  syncT = setTimeout(() => pushFor(userId, payload), 1200);
+}
+async function pushFor(userId, payload){
+  if(!AC.canPush(USER && USER.id, userId) || !payload) return;
+  const {error}=await sb.from('tracker_data').upsert({user_id:userId, data:payload});
+  if(!AC.canPush(USER && USER.id, userId)) return;
+  syncState=error?'offline – will retry':'synced';
+  if(error){ console.warn('sync failed',error.message); clearTimeout(syncT); syncT=setTimeout(()=>pushFor(userId, payload),15000); }
+}
 window.addEventListener('online', ()=>queueSync());
 async function loadRemote(){
-  const {data,error}=await sb.from('tracker_data').select('data').eq('user_id',USER.id).maybeSingle();
-  if(error){ S = localGet() || load(); syncState='offline'; toast('Offline – using local cache'); return; }
-  if(data && data.data && data.data.version){ S=data.data; localStorage.setItem(KEY, JSON.stringify(S)); syncState='synced'; return; }
-  S = localGet() || load(); localStorage.setItem(KEY, JSON.stringify(S)); await pushRemote();
-}
-
-function seed(s){
-  const A = SPEC.athleteState;
-  const mkSets = (loads, reps) => loads.map((w,i)=>({setType:'working', techniqueCode:null, weightKg:w, perSide:false, reps: reps==null?null:reps, rir:null, durationSec:null, notes:null}));
-  A.sessions.forEach(src => {
-    const ses = {id:uid(), date:src.date, startTime:'12:00', weekOverride:null, dayId:src.dayId, durationMin:null, soreness:null, energy:null, bodyweightKg:null, status:'completed', skipReason:null, loggedLate:true, notes:'Seeded from coach-bot (Jeff) summary; reps/RIR not recorded.', entries:[]};
-    src.entries.forEach(e => {
-      const pid = e.planned ? findExIdByName(e.planned) : null;
-      const loads = e.loadsKg || (e.loadKg!=null ? Array(e.workingSets||1).fill(e.loadKg) : []);
-      let subUsed = 'none';
-      if (e.performed && e.planned && norm(e.performed)!==norm(e.planned)) {
-        const b = pid && exById[pid];
-        subUsed = b && norm(b.substitution1)===norm(e.performed) ? 'sub1' : b && norm(b.substitution2)===norm(e.performed) ? 'sub2' : 'custom';
-      }
-      if (!e.planned) subUsed = 'custom';
-      const sets = mkSets(loads, e.reps);
-      sets.forEach(x=>x.perSide=!!e.perSide);
-      const notes = [e.note, e.reason, e.approx?'load approximate':null].filter(Boolean).join('; ')||null;
-      ses.entries.push({id:uid(), plannedExerciseId:pid, plannedName:e.planned||null, performedExercise:e.performed, substitutionUsed:subUsed, substitutionReason:e.substitutionReason||null, cutShort:!!e.cutShort, discomfort: /back/i.test(e.reason||'') ? 'low back' : null, notes, sets});
-    });
-    if (ses.entries.some(e=>e.cutShort)) ses.status='partial';
-    s.sessions.push(ses);
-  });
-  ['2026-10-09','2026-10-10'].forEach(d => s.sessions.push({id:uid(), date:d, startTime:'12:00', weekOverride:null, dayId:'armsDelts', durationMin:null, soreness:null, energy:null, bodyweightKg:null, status:'skipped', skipReason:'soreness', loggedLate:true, notes:'Skipped for soreness (seeded).', entries:[]}));
-  s.baselineBests = A.recentBestsKg.map(b => ({...b, exerciseId: findExIdByName(b.exercise) || findExIdByName((b.mapsTo||'').split(/[(/]/)[0])}));
-  s.seeded = true;
+  const userId = USER.id;
+  const {data,error}=await sb.from('tracker_data').select('data').eq('user_id',userId).maybeSingle();
+  if(!USER || USER.id!==userId) return;
+  const scoped = AC.readScoped(localStorage, userId);
+  const remote = !error && data && data.data;
+  const decision = AC.loadDecision(remote, scoped, !!error);
+  S = decision.data;
+  allowSync = !(decision.source==='blank' && !decision.upload);
+  if(decision.source!=='blank' || decision.upload) AC.writeScoped(localStorage, userId, S);
+  syncState = error ? 'offline' : 'synced';
+  if(error) toast('Offline – using local cache');
+  if(decision.upload) await pushFor(userId, S);
 }
 
 /* ---------- program position ---------- */
@@ -871,7 +864,7 @@ function renderSettings(){
   <div class="card"><h2>Backup</h2>
     <div class="row"><button class="btn pri" id="exp">Export JSON</button><label class="btn" style="display:inline-flex;align-items:center;color:var(--txt);font-size:15px;font-weight:600;border:1px solid var(--line);border-radius:12px;padding:10px 16px;background:var(--card2)">Import JSON<input type="file" id="imp" accept="application/json,.json" hidden></label></div>
     <div class="small muted" style="margin-top:8px">Synced to your account (${esc(USER?USER.email:'')}); this browser keeps an offline copy. ${esc(syncState)}</div>
-    <div class="row" style="margin-top:12px"><button class="btn sm" id="signout">Sign out</button><button class="btn danger sm" id="reset">Reset to seeded data</button></div>
+    <div class="row" style="margin-top:12px"><button class="btn sm" id="signout">Sign out</button><button class="btn danger sm" id="reset">Erase my data</button></div>
   </div>
   <div class="card small muted">Program structure and numbers from the coach-bot tracking spec (${esc(SPEC.meta.program)}, generated ${esc(SPEC.meta.generated)}). Units: kg. This app logs training; it doesn't give medical advice — if something hurts, use the discomfort flag and a substitution, and check with a professional.</div>`;
   v.querySelectorAll('[data-w]').forEach(b=>b.onclick=()=>{ st.currentWeek=+b.dataset.w; st.anchorDate=todayISO(); save(); renderSettings(); toast('Week set to '+b.dataset.w); });
@@ -881,11 +874,35 @@ function renderSettings(){
   v.querySelectorAll('[data-m]').forEach(i=>i.onchange=()=>{ const ws=mondayOf(todayISO()); let m=S.measurements.find(x=>x.weekStart===ws); if(!m){m={weekStart:ws};S.measurements.push(m);} m[i.dataset.m]=num(i.value); save(); toast('Saved'); });
   $('#exp').onclick=()=>{ const blob=new Blob([JSON.stringify({exportedAt:new Date().toISOString(),app:'minmax-tracker',data:S},null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`minmax-backup-${todayISO()}.json`; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000); };
   $('#imp').onchange=async ev=>{ const f=ev.target.files[0]; if(!f) return; try{ const j=JSON.parse(await f.text()); const d=j.data||j; if(!d.sessions||!d.settings) throw new Error('not a Min-Max backup'); if(!confirm(`Replace current data with ${d.sessions.length} sessions from backup?`)) return; S=d; save(); render(); toast('Imported ✓'); }catch(e){ alert('Import failed: '+e.message); } };
-  $('#signout').onclick=async()=>{ clearTimeout(syncT); await pushRemote(); await sb.auth.signOut(); localStorage.removeItem(KEY); toast('Signed out'); };
-  $('#reset').onclick=()=>{ if(!confirm('Erase all data and restore seeded sessions?')) return; S=blank(); seed(S); save(); ui.dayId=null; ui.logging=false; ui.homeDay=null; ui.focusId=null; renderSettings(); toast('Reset'); };
+  $('#signout').onclick=async()=>{
+    clearTimeout(syncT);
+    if(USER && S && allowSync) await pushFor(USER.id, S);
+    clearTimeout(syncT);
+    await sb.auth.signOut();
+    toast('Signed out');
+  };
+  $('#reset').onclick=()=>{ if(!confirm('Erase all of your training data on this account?')) return; S=blank(); save(); ui.dayId=null; ui.logging=false; ui.homeDay=null; ui.focusId=null; renderSettings(); toast('Cleared'); };
 }
 
-const OWNER_EMAIL='rodcisal@gmail.com';
+function resetUi(){
+  ui.date=todayISO();
+  ui.dayId=null;
+  ui.progEx=null;
+  ui.focusId=null;
+  ui.pad={};
+  ui.edit=null;
+  ui.restUntil=0;
+  ui.restTotal=0;
+  ui.restLabel='';
+  ui.undo=null;
+  ui.logging=false;
+  ui.homeDay=null;
+  if(restTick){ clearInterval(restTick); restTick=null; }
+  tab='log';
+  document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('active', x.dataset.tab==='log'));
+  document.body.classList.remove('tab-log','resting');
+  document.body.style.paddingBottom='';
+}
 function showLogin(msg){
   document.body.classList.add('auth');
   document.body.classList.remove('tab-log','resting');
@@ -898,18 +915,32 @@ function showLogin(msg){
     <div id="lgMsg" class="small" style="margin-top:10px">${esc(msg||'')}</div></div>`;
   const m=t=>$('#lgMsg').textContent=t;
   $('#lgGo').onclick=async()=>{ const em=$('#lgEmail').value.trim().toLowerCase(); if(!em) return m('Enter your email.');
-    if(em!==OWNER_EMAIL) return m("Sorry, this is a private tracker and that email isn't allowed to sign in.");
     m('Sending…'); const {error}=await sb.auth.signInWithOtp({email:em,options:{shouldCreateUser:true,emailRedirectTo:location.origin+location.pathname}});
     m(error?error.message:'Check your inbox for the sign-in link.'); };
   $('#lgEmail').onkeydown=e=>{ if(e.key==='Enter') $('#lgGo').click(); };
 }
 async function onSession(session){
   const u = session && session.user;
-  if(!u){ USER=null; S=null; showLogin(); return; }
+  if(!u){
+    clearTimeout(syncT);
+    if(USER && S && allowSync) await pushFor(USER.id, S);
+    clearTimeout(syncT);
+    USER=null; S=null; allowSync=false;
+    resetUi();
+    showLogin();
+    return;
+  }
   if(USER && USER.id===u.id) return;
-  USER=u; document.body.classList.remove('auth');
+  clearTimeout(syncT);
+  if(USER && S && allowSync) await pushFor(USER.id, S);
+  clearTimeout(syncT);
+  USER=u; S=null; allowSync=false;
+  resetUi();
+  document.body.classList.remove('auth');
   $('#view').innerHTML='<div class="card muted">Loading your data…</div>';
-  await loadRemote(); render();
+  await loadRemote();
+  if(!USER || USER.id!==u.id) return;
+  render();
   if(location.hash.includes('access_token')) history.replaceState(null,'',location.pathname);
 }
 sb.auth.onAuthStateChange((ev,session)=>{ setTimeout(()=>onSession(session),0); });
