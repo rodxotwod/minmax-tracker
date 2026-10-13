@@ -4,7 +4,7 @@
 const SPEC = window.MINMAX_SPEC;
 const P = SPEC.program;
 const KEY = 'minmax-tracker-v1';
-const SEQ = ['upper1','lower1','upper2','lower2','armsDelts'];
+const SEQ = MinMaxNext.trainingDays(P.weeklySplit);
 const DAY_LABEL = {upper1:'Upper 1',lower1:'Lower 1',upper2:'Upper 2',lower2:'Lower 2',armsDelts:'Arms + Delts'};
 const MUSCLE_LABEL = m => m.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
 const $ = (s,el=document)=>el.querySelector(s);
@@ -41,7 +41,7 @@ const SB_KEY='sb_publishable_KD0g-iX3A8zy1GxOtniXcg_hJ-eyi-e';
 const sb = window.supabase.createClient(SB_URL, SB_KEY, {auth:{persistSession:true, autoRefreshToken:true, storage:window.localStorage, storageKey:'minmax-auth', detectSessionInUrl:true, flowType:'implicit'}});
 let USER=null, syncT=null, syncState='';
 let S = null;
-function blank(){ return {version:1, settings:{currentWeek:null, anchorDate:null, nextDayOverride:'armsDelts', defaultTime:'12:00'}, sessions:[], measurements:[], baselineBests:[], seeded:false}; }
+function blank(){ return {version:1, settings:{currentWeek:null, anchorDate:null, nextDayOverride:null, nextDayPinned:false, defaultTime:'12:00'}, sessions:[], measurements:[], baselineBests:[], seeded:false}; }
 function load(){
   try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && s.version) return s; } catch(e){}
   const s = blank(); seed(s); localStorage.setItem(KEY, JSON.stringify(s)); return s;
@@ -94,11 +94,7 @@ function weekFor(date){
 }
 const sesWeek = s => s.weekOverride || weekFor(s.date);
 function nextDay(){
-  if (S.settings.nextDayOverride) return S.settings.nextDayOverride;
-  const done = S.sessions.filter(s=>s.status!=='skipped').sort(cmpSes);
-  if (!done.length) return 'upper1';
-  const last = done[done.length-1].dayId;
-  return SEQ[(SEQ.indexOf(last)+1)%SEQ.length];
+  return MinMaxNext.suggestedDay(P.weeklySplit, S.sessions, todayISO(), S.settings);
 }
 const cmpSes = (a,b) => (a.date+a.startTime).localeCompare(b.date+b.startTime);
 
@@ -454,7 +450,7 @@ function doLog(s,e,type){
 }
 function finishWorkout(s){
   commit(s);
-  if(S.settings.nextDayOverride===s.dayId || !S.settings.nextDayOverride) S.settings.nextDayOverride=SEQ[(SEQ.indexOf(s.dayId)+1)%SEQ.length];
+  if(S.settings){ S.settings.nextDayPinned=false; S.settings.nextDayOverride=null; }
   save();
   toast('Workout saved');
   ui.dayId=null; ui.focusId=null; ui.edit=null; ui.restUntil=0; ui.logging=false; ui.homeDay=null;
@@ -879,7 +875,7 @@ function renderSettings(){
   </div>
   <div class="card small muted">Program structure and numbers from the coach-bot tracking spec (${esc(SPEC.meta.program)}, generated ${esc(SPEC.meta.generated)}). Units: kg. This app logs training; it doesn't give medical advice — if something hurts, use the discomfort flag and a substitution, and check with a professional.</div>`;
   v.querySelectorAll('[data-w]').forEach(b=>b.onclick=()=>{ st.currentWeek=+b.dataset.w; st.anchorDate=todayISO(); save(); renderSettings(); toast('Week set to '+b.dataset.w); });
-  v.querySelectorAll('[data-nd]').forEach(b=>b.onclick=()=>{ st.nextDayOverride=b.dataset.nd; ui.dayId=null; save(); renderSettings(); });
+  v.querySelectorAll('[data-nd]').forEach(b=>b.onclick=()=>{ st.nextDayOverride=b.dataset.nd; st.nextDayPinned=true; ui.homeDay=null; ui.dayId=null; save(); renderSettings(); });
   $('#defT').onchange=ev=>{st.defaultTime=ev.target.value; save();};
   $('#sticky').onchange=ev=>{st.stickySubs=!!ev.target.value; save();};
   v.querySelectorAll('[data-m]').forEach(i=>i.onchange=()=>{ const ws=mondayOf(todayISO()); let m=S.measurements.find(x=>x.weekStart===ws); if(!m){m={weekStart:ws};S.measurements.push(m);} m[i.dataset.m]=num(i.value); save(); toast('Saved'); });
