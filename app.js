@@ -38,7 +38,7 @@ function weekInfo(w){ return P.weeks.find(x=>x.week===w) || null; }
 /* ---------- state ---------- */
 const SB_URL='https://ftoypdcokckdnrtxlnvj.supabase.co';
 const SB_KEY='sb_publishable_KD0g-iX3A8zy1GxOtniXcg_hJ-eyi-e';
-const sb = window.supabase.createClient(SB_URL, SB_KEY, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:true, flowType:'implicit'}});
+const sb = window.supabase.createClient(SB_URL, SB_KEY, {auth:{persistSession:true, autoRefreshToken:true, storage:window.localStorage, storageKey:'minmax-auth', detectSessionInUrl:true, flowType:'implicit'}});
 let USER=null, syncT=null, syncState='';
 let S = null;
 function blank(){ return {version:1, settings:{currentWeek:null, anchorDate:null, nextDayOverride:'armsDelts', defaultTime:'12:00'}, sessions:[], measurements:[], baselineBests:[], seeded:false}; }
@@ -544,22 +544,20 @@ function renderSettings(){
   $('#reset').onclick=()=>{ if(!confirm('Erase all data and restore seeded sessions?')) return; S=blank(); seed(S); save(); ui.dayId=null; renderSettings(); toast('Reset'); };
 }
 
+const OWNER_EMAIL='rodcisal@gmail.com';
 function showLogin(msg){
   document.body.classList.add('auth');
   $('#view').innerHTML = `<div class="card login"><h2>Sign in</h2>
-    <p class="small muted">Your training data syncs to your account. Get a magic link by email, or use a password.</p>
+    <p class="small muted">Enter your email and we'll send you a magic sign-in link.</p>
     <label>Email</label><input type="email" id="lgEmail" autocomplete="email" placeholder="you@example.com">
-    <label style="margin-top:10px">Password <span class="muted small">(optional – leave empty for magic link)</span></label><input type="password" id="lgPw" autocomplete="current-password">
-    <div class="row" style="margin-top:14px;flex-wrap:wrap"><button class="btn pri" id="lgGo">Send magic link</button><button class="btn" id="lgUp">Create account</button></div>
+    <div class="row" style="margin-top:14px"><button class="btn pri" id="lgGo">Send magic link</button></div>
     <div id="lgMsg" class="small" style="margin-top:10px">${esc(msg||'')}</div></div>`;
-  const m=t=>$('#lgMsg').textContent=t, em=()=>$('#lgEmail').value.trim(), pw=()=>$('#lgPw').value;
-  const redirect = location.origin + location.pathname;
-  $('#lgPw').oninput=()=>$('#lgGo').textContent=pw()?'Sign in':'Send magic link';
-  $('#lgGo').onclick=async()=>{ if(!em()) return m('Enter your email.'); m('Working…');
-    if(pw()){ const {error}=await sb.auth.signInWithPassword({email:em(),password:pw()}); m(error?error.message:''); }
-    else { const {error}=await sb.auth.signInWithOtp({email:em(),options:{emailRedirectTo:redirect}}); m(error?error.message:'Check your inbox for the sign-in link.'); } };
-  $('#lgUp').onclick=async()=>{ if(!em()||pw().length<6) return m('Enter email and a password (6+ chars).'); m('Working…');
-    const {data,error}=await sb.auth.signUp({email:em(),password:pw(),options:{emailRedirectTo:redirect}}); m(error?error.message:(data.session?'':'Check your inbox to confirm your email.')); };
+  const m=t=>$('#lgMsg').textContent=t;
+  $('#lgGo').onclick=async()=>{ const em=$('#lgEmail').value.trim().toLowerCase(); if(!em) return m('Enter your email.');
+    if(em!==OWNER_EMAIL) return m("Sorry, this is a private tracker and that email isn't allowed to sign in.");
+    m('Sending…'); const {error}=await sb.auth.signInWithOtp({email:em,options:{shouldCreateUser:true,emailRedirectTo:location.origin+location.pathname}});
+    m(error?error.message:'Check your inbox for the sign-in link.'); };
+  $('#lgEmail').onkeydown=e=>{ if(e.key==='Enter') $('#lgGo').click(); };
 }
 async function onSession(session){
   const u = session && session.user;
