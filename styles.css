@@ -93,6 +93,23 @@ label{font-size:14px;font-weight:650;color:var(--mut);display:block}
 .swap-btn{flex:none;width:32px;height:32px;min-height:32px;margin-top:1px;padding:0;border-radius:8px;border:1px solid var(--line);background:#fff;color:var(--mut);display:flex;align-items:center;justify-content:center}
 .swap-btn:active{background:var(--card2);color:var(--txt)}
 .ex-planned{font-size:14px;color:var(--mut);margin-top:2px}
+.day-warm{margin:10px 0 0;font-size:14px;font-weight:650;color:var(--mut)}
+.day-plan{margin-top:12px}
+.plan-ex{padding:12px 0 4px;border-top:1px solid var(--line)}
+.plan-ex:first-child{border-top:0;padding-top:2px}
+.plan-name{display:flex;align-items:baseline;gap:8px}
+.plan-n{flex:none;font-weight:800;color:var(--mut);min-width:1.2em}
+.plan-name b{flex:1;min-width:0;font-size:17px;letter-spacing:-.02em;overflow-wrap:anywhere}
+.plan-name b.on{color:var(--acc)}
+.plan-name .pv-sets{flex:none;font-variant-numeric:tabular-nums;font-weight:750;color:var(--mut);font-size:14px}
+.prog-facts{margin:8px 0 0;display:flex;flex-direction:column;gap:5px}
+.prog-facts div{display:grid;grid-template-columns:minmax(108px,40%) 1fr;gap:4px 10px;align-items:baseline}
+.prog-facts dt{margin:0;font-size:11px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;color:var(--mut)}
+.prog-facts dd{margin:0;font-size:15px;font-weight:650;overflow-wrap:anywhere}
+.fact-sub{display:block;margin-top:2px;font-size:13px;font-weight:650;color:var(--mut)}
+.ex-card .card-log{margin-top:10px}
+#addCustom{width:100%;margin:0 0 12px}
+.session-open h2{margin-bottom:10px}
 .last-done{padding:12px 16px}
 .last-done-line{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-top:2px}
 .last-done-line b{font-size:18px;letter-spacing:-.02em}
