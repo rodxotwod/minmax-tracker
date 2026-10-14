@@ -49,7 +49,14 @@ assert.strictEqual(
 assert.strictEqual(
   suggestedDay(split, upperThenLower.concat([trained('upper2', '2026-10-13', '18:10')]), '2026-10-13', legacyOverride),
   'upper2',
-  'a workout already logged today stays the current session'
+  'a workout already logged today stays the current session until it is finished'
+);
+const finishedToday = trained('upper2', '2026-10-13', '18:10');
+finishedToday.finished = true;
+assert.strictEqual(
+  suggestedDay(split, upperThenLower.concat([finishedToday]), '2026-10-13', legacyOverride),
+  'lower2',
+  'finishing today advances to the next session in the split'
 );
 assert.strictEqual(
   suggestedDay(split, upperThenLower, '2026-10-13', { nextDayOverride: 'lower2', nextDayPinned: true }),

@@ -314,14 +314,50 @@ function suggestedPad(s,e){
   return {weightKg:+lastThis.weightKg, reps, rir};
 }
 function padOf(s,e){ if(!ui.pad[e.id]) ui.pad[e.id]=suggestedPad(s,e); return ui.pad[e.id]; }
-function variationBar(e){
+function applyVariation(s,e,code,customName){
   const ex=e.plannedExerciseId?exById[e.plannedExerciseId]:null;
-  if(!ex) return `<div class="var-picks"><button type="button" class="chip var on" data-sub="custom">Rename</button></div>`;
-  const vars=VV.variationsFor(ex);
-  const code=VV.codeFor(ex, e.performedExercise);
-  const chips=vars.map(v=>`<button type="button" class="chip var ${code===v.code?'on':''}" data-sub="${v.code}">${esc(v.name)}</button>`).join('');
-  const custom=code==='custom';
-  return `<div class="var-label">Variation</div><div class="var-picks">${chips}<button type="button" class="chip var ${custom?'on':''}" data-sub="custom">${custom?'✎ '+esc(e.performedExercise):'Other…'}</button></div>`;
+  if(code==='custom'){
+    if(!VV.isRealName(customName)) return;
+    const trimmed=customName.trim();
+    const listed=ex && VV.variationsFor(ex).find(v=>norm(v.name)===norm(trimmed));
+    e.performedExercise=listed?listed.name:trimmed;
+    e.substitutionUsed=listed?listed.code:'custom';
+  } else if(ex){
+    const choice=VV.variationsFor(ex).find(v=>v.code===code);
+    if(!choice) return;
+    e.performedExercise=choice.name;
+    e.substitutionUsed=choice.code;
+  }
+  if(e.substitutionUsed==='none') e.substitutionReason=null;
+  ui.pad[e.id]=padForVariation(s,e);
+  ui.edit=null;
+  commit(s);
+  keepScroll=true;
+  renderLog();
+  toast('Using '+e.performedExercise);
+}
+function openSwap(s,e){
+  const ex=e.plannedExerciseId?exById[e.plannedExerciseId]:null;
+  const vars=ex?VV.variationsFor(ex):[];
+  const code=ex?VV.codeFor(ex, e.performedExercise):'custom';
+  const d=$('#dlg');
+  d.innerHTML=`<h3 style="margin-top:0">Swap exercise</h3>
+    <div class="swap-list">
+      ${vars.map(v=>`<button type="button" class="swap-opt ${code===v.code?'on':''}" data-sub="${v.code}">${esc(v.name)}</button>`).join('')}
+      <button type="button" class="swap-opt ${code==='custom'?'on':''}" data-sub="custom">${code==='custom'?esc(e.performedExercise):'Custom name…'}</button>
+    </div>`;
+  d.querySelectorAll('[data-sub]').forEach(b=>b.onclick=()=>{
+    const k=b.dataset.sub;
+    d.close();
+    if(k==='custom'){
+      const name=prompt('Exercise performed instead:', e.substitutionUsed==='custom'?e.performedExercise:'');
+      applyVariation(s,e,'custom',name);
+      return;
+    }
+    applyVariation(s,e,k);
+  });
+  if(d.open) d.close();
+  d.showModal();
 }
 function logCopy(s,e){
   const p=padOf(s,e);
@@ -459,10 +495,24 @@ function doLog(s,e,type){
   toast(type==='warmup'?'Warm-up logged':'Technique set logged', {undo:applyUndo});
   keepScroll=true; renderLog();
 }
+function sessionHasWork(s){
+  return !!(s && (s.entries||[]).some(e=>(e.sets||[]).some(x=>x && x.weightKg!=null && x.weightKg!=='' && x.setType!=='warmup')));
+}
+function lastDoneSession(){
+  return [...S.sessions].filter(s=>s && s.status!=='skipped' && sessionHasWork(s) && s.finished===true).sort(cmpSes).pop()||null;
+}
+function openSession(date, dayId){
+  const s=savedSession(date, dayId);
+  if(!s || s.finished===true) return null;
+  return s;
+}
 function finishWorkout(s){
+  s.finished=true;
+  if(s.status!=='partial' && s.status!=='skipped') s.status='completed';
   commit(s);
   if(S.settings){ S.settings.nextDayPinned=false; S.settings.nextDayOverride=null; }
   save();
+  if(USER && allowSync){ clearTimeout(syncT); pushFor(USER.id, S); }
   toast('Workout saved');
   ui.dayId=null; ui.focusId=null; ui.edit=null; ui.restUntil=0; ui.logging=false; ui.homeDay=null;
   render();
@@ -477,6 +527,7 @@ function startSession(dayId){
   const s=getSession(ui.date, dayId, true);
   ensureEntries(s);
   if(!existing) s.startTime=nowHHMM();
+  s.finished=false;
   commit(s);
   ui.logging=true;
   render();
@@ -495,20 +546,22 @@ function renderHome(){
   const planned=nextDay();
   const day=(ui.homeDay && SEQ.includes(ui.homeDay))?ui.homeDay:planned;
   ui.homeDay=day;
-  const saved=savedSession(todayISO(), day);
+  const saved=openSession(todayISO(), day);
+  const done=lastDoneSession();
   const w=weekFor(todayISO()), wi=w&&weekInfo(w);
   const rows=prescription(w||2, day);
   const prog=saved?progressOf(saved):null;
   const items=rows.map(r=>{
     const en=saved&&saved.entries.find(e=>e.plannedExerciseId===r.exerciseId);
-    const done=en?workingLogged(en):0;
+    const doneEn=en?workingLogged(en):0;
     const reps=r.repRange?r.repRange[0]+'–'+r.repRange[1]:'hold';
     const remembered=VV.rememberedName(r, lastEntryFor(r.exerciseId, todayISO()), !S.settings || S.settings.stickySubs!==false);
-    return {name:en?en.performedExercise:remembered, done, tgt:r.workingSets, reps, on:done>=r.workingSets && done>0};
+    return {name:en?en.performedExercise:remembered, done:doneEn, tgt:r.workingSets, reps, on:doneEn>=r.workingSets && doneEn>0};
   });
   const showN=4;
   v.innerHTML=`
   ${weekBannerHtml()}
+  ${done?`<section class="card last-done"><div class="hero-kicker">Last workout</div><div class="last-done-line"><b>${esc(DAY_LABEL[done.dayId]||done.dayId)}</b><span class="muted">${fmtD(done.date)}${done.startTime?' · '+esc(done.startTime):''}</span></div></section>`:''}
   <section class="card hero">
     <div class="hero-kicker">${saved?'In progress':'Next up'}</div>
     <h2 class="hero-title">${esc(DAY_LABEL[day])}</h2>
@@ -584,15 +637,15 @@ function renderLog(){
   ${e?`<div class="card logger">
     <div class="ex-nav">
       <button type="button" class="nav-arrow" id="exPrev" aria-label="Previous exercise">‹</button>
-      <div><div class="ex-kicker">Exercise ${idx+1} of ${s.entries.length}${pg&&STATUS[pg.status]?` · ${STATUS[pg.status]}`:''}</div><div class="ex-name">${esc(e.performedExercise)}</div>
+      <div><div class="ex-kicker">Exercise ${idx+1} of ${s.entries.length}${pg&&STATUS[pg.status]?` · ${STATUS[pg.status]}`:''}</div>
+      <div class="ex-name-row"><div class="ex-name">${esc(e.performedExercise)}</div><button type="button" class="swap-btn" id="swapBtn" aria-label="Swap exercise"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13M14 4l4 4-4 4M20 16H7M10 12l-4 4 4 4"/></svg></button></div>
       ${e.substitutionUsed!=='none'&&e.plannedName?`<div class="ex-planned">instead of ${esc(e.plannedName)}</div>`:''}
       ${!e.plannedName?`<div class="ex-planned">extra</div>`:''}</div>
       <button type="button" class="nav-arrow" id="exNext" aria-label="Next exercise">›</button>
     </div>
-    ${variationBar(e)}
     ${r?`<p class="meta-line">${r.workingSets} × ${r.repRange?r.repRange[0]+'–'+r.repRange[1]:'max hold'} · RIR ${r.rirSet1}${r.rirSet2!=null?'/'+r.rirSet2:''} · Rest ${r.rest.minMinutes}–${r.rest.maxMinutes} min</p>`:''}
     ${prev?`<p class="last-line small muted">Last ${fmtD(prev.ses.date)} · ${prev.ws.map(x=>fmt(+x.weightKg)+(x.reps!=null?'×'+x.reps:'')+(x.rir!=null?'@'+x.rir:'')).join(', ')}</p>`:''}
-    ${prevFlag?`<div class="sugg hold">Low-back flag on this lift before. Swap below if you want a substitute.</div>`:''}
+    ${prevFlag?`<div class="sugg hold">Low-back flag on this lift before. Use Swap if you want a substitute.</div>`:''}
     <div class="steppers">
       <div class="stepper weight"><button type="button" class="step" data-inc="weightKg" data-dir="-1" aria-label="Decrease weight">−</button><label class="step-mid"><input inputmode="decimal" enterkeyhint="done" autocomplete="off" autocorrect="off" spellcheck="false" data-pad="weightKg" value="${p.weightKg==null?'':fmt(p.weightKg)}"><span class="unit">kg${perSide?' / side':''}</span></label><button type="button" class="step plus" data-inc="weightKg" data-dir="1" aria-label="Increase weight">+</button></div>
       <div class="stepper"><button type="button" class="step" data-inc="reps" data-dir="-1" aria-label="Decrease reps">−</button><label class="step-mid"><input inputmode="numeric" enterkeyhint="done" autocomplete="off" data-pad="reps" value="${p.reps==null?'':fmt(p.reps)}"><span class="unit">reps</span></label><button type="button" class="step plus" data-inc="reps" data-dir="1" aria-label="Increase reps">+</button></div>
@@ -703,27 +756,7 @@ function bindLog(s,e){
     commit(s); toast('Set removed', {undo:applyUndo}); keepScroll=true; renderLog();
   });
   const cancel=$('#cancelEdit'); if(cancel) cancel.onclick=()=>{ ui.edit=null; delete ui.pad[e.id]; keepScroll=true; renderLog(); };
-  const exBase=e.plannedExerciseId?exById[e.plannedExerciseId]:null;
-  v.querySelectorAll('[data-sub]').forEach(b=>b.onclick=()=>{
-    const k=b.dataset.sub;
-    if(k==='custom'){
-      const name=prompt('Exercise performed instead:', e.substitutionUsed==='custom'?e.performedExercise:'');
-      if(!VV.isRealName(name)) return;
-      const trimmed=name.trim();
-      const listed=exBase && VV.variationsFor(exBase).find(v=>norm(v.name)===norm(trimmed));
-      e.performedExercise=listed?listed.name:trimmed;
-      e.substitutionUsed=listed?listed.code:'custom';
-    } else if(exBase){
-      const choice=VV.variationsFor(exBase).find(v=>v.code===k);
-      if(!choice) return;
-      e.performedExercise=choice.name;
-      e.substitutionUsed=choice.code;
-    }
-    if(e.substitutionUsed==='none') e.substitutionReason=null;
-    ui.pad[e.id]=padForVariation(s,e);
-    ui.edit=null; touch(); keepScroll=true; renderLog();
-    toast('Using '+e.performedExercise);
-  });
+  const swap=$('#swapBtn'); if(swap) swap.onclick=()=>openSwap(s,e);
   const ps=v.querySelector('[data-perside]'); if(ps) ps.onclick=()=>{ const on=!e.sets.some(x=>x.perSide); e.sets.forEach(x=>x.perSide=on); touch(); keepScroll=true; renderLog(); };
   const cut=v.querySelector('[data-cut]'); if(cut) cut.onclick=()=>{ e.cutShort=!e.cutShort; if(e.cutShort && s.status==='completed') s.status='partial'; touch(); keepScroll=true; renderLog(); };
   const disc=v.querySelector('[data-disc]'); if(disc) disc.onclick=()=>{ if(e.discomfort) e.discomfort=null; else { const where=prompt('Where / what? (saved as a note, e.g. "low back")', /rdl/i.test(e.performedExercise+(e.plannedName||''))?'low back':''); if(where===null) return; e.discomfort=where||'yes'; } touch(); keepScroll=true; renderLog(); };
