@@ -99,7 +99,10 @@ const e1rm = (w,r,rir) => w*(1+((r||0)+(rir||0))/30);
 function exposures(performedName, beforeDate){
   const n = norm(performedName), out=[];
   S.sessions.filter(s=>s.status!=='skipped' && (!beforeDate || s.date<beforeDate)).sort(cmpSes).forEach(s=>{
-    s.entries.forEach(en=>{ if (norm(en.performedExercise)===n){ const ws=workSets(en); if (ws.length) out.push({ses:s, en, ws, week:sesWeek(s)}); }});
+    s.entries.forEach(en=>{
+      const ws=workSets(en).filter(x=>norm(VV.variationOf(en, x))===n);
+      if (ws.length) out.push({ses:s, en, ws, week:sesWeek(s)});
+    });
   });
   return out;
 }
@@ -222,8 +225,10 @@ window.addEventListener('resize', ()=>{ if(tab==='log' && ui.logging) fitDock();
 /* ---------- LOG view ---------- */
 function getSession(date, dayId, create){
   let s = S.sessions.find(x=>x.date===date && x.dayId===dayId && x.status!=='skipped');
+  if (!s && ui.draft && ui.draft._draft && ui.draft.date===date && ui.draft.dayId===dayId && ui.draft.status!=='skipped') s = ui.draft;
   if (!s && create){
     s = {id:uid(), date, startTime:S.settings.defaultTime||'12:00', weekOverride:null, dayId, durationMin:null, soreness:null, energy:null, bodyweightKg:null, status:'completed', skipReason:null, loggedLate: date<todayISO(), notes:null, entries:[], _draft:true};
+    ui.draft = s;
   }
   return s;
 }
@@ -249,7 +254,14 @@ function lastEntryFor(pid, before){
   for (const s of ss){ const e=s.entries.find(e=>e.plannedExerciseId===pid); if (e) return e; }
   return null;
 }
-function commit(s){ if (s._draft){ delete s._draft; S.sessions.push(s); } save(); }
+function commit(s){
+  if (s._draft){
+    delete s._draft;
+    if (ui.draft===s) ui.draft=null;
+    S.sessions.push(s);
+  }
+  save();
+}
 let keepScroll=false;
 let restTick=null;
 function nowHHMM(){ const d=new Date(); return pad(d.getHours())+':'+pad(d.getMinutes()); }
@@ -279,17 +291,16 @@ function blankSet(type, tech, perSide){
   return {setType:type, techniqueCode:tech||null, weightKg:null, perSide:!!perSide, reps:null, rir:null, durationSec:null, notes:null};
 }
 function previousLoad(name, beforeDate){
-  const prev=exposures(name, beforeDate).pop();
-  if(prev && prev.ws.length) return Math.max(...prev.ws.map(x=>+x.weightKg));
+  const hit=VV.lastExposure(S.sessions, name, beforeDate);
+  if(hit) return hit.weight;
   const baseline=S.baselineBests.find(b=>norm(b.exercise)===norm(name));
   if(!baseline) return null;
   const L=Array.isArray(baseline.loadKg)?baseline.loadKg[baseline.loadKg.length-1]:baseline.loadKg;
   return num(L);
 }
 function previousReps(name, beforeDate){
-  const prev=exposures(name, beforeDate).pop();
-  const prevWs=prev&&prev.ws.length?prev.ws[prev.ws.length-1]:null;
-  if(prevWs && num(prevWs.reps)!=null) return +prevWs.reps;
+  const hit=VV.lastExposure(S.sessions, name, beforeDate);
+  if(hit && hit.reps!=null) return hit.reps;
   const baseline=S.baselineBests.find(b=>norm(b.exercise)===norm(name));
   if(baseline && num(baseline.reps)!=null) return +baseline.reps;
   return null;
@@ -451,7 +462,7 @@ function doLog(s,e,type){
     const idx=ui.edit.idx;
     const prev=Object.assign({}, e.sets[idx]);
     const setType=prev.setType||'working';
-    Object.assign(e.sets[idx], {weightKg:w, reps, rir:setType==='warmup'?null:rir});
+    Object.assign(e.sets[idx], {weightKg:w, reps, rir:setType==='warmup'?null:rir, variation: prev.variation || e.performedExercise});
     ui.undo={kind:'fill', date:s.date, dayId:s.dayId, eid:e.id, idx, prev};
     ui.edit=null;
     commit(s);
@@ -463,7 +474,7 @@ function doLog(s,e,type){
     let kind='fill';
     if(idx<0){ e.sets.push(blankSet('working', null, perSide)); idx=e.sets.length-1; kind='insert'; }
     const prev=Object.assign({}, e.sets[idx]);
-    Object.assign(e.sets[idx], {weightKg:w, reps, rir, perSide});
+    Object.assign(e.sets[idx], {weightKg:w, reps, rir, perSide, variation: e.performedExercise});
     ui.undo={kind, date:s.date, dayId:s.dayId, eid:e.id, idx, prev};
     commit(s);
     const r=prescriptionRow(s,e);
@@ -486,7 +497,7 @@ function doLog(s,e,type){
     keepScroll=true; renderLog(); return;
   }
   const ns=blankSet(type, type==='technique'?(rr&&rr.intensityTechniqueCode)||null:null, perSide);
-  ns.weightKg=w; ns.reps=reps; ns.rir=type==='technique'?rir:null;
+  ns.weightKg=w; ns.reps=reps; ns.rir=type==='technique'?rir:null; ns.variation=e.performedExercise;
   let idx;
   if(type==='warmup'){ const k=e.sets.findIndex(y=>y.setType!=='warmup'); idx=k<0?e.sets.length:k; e.sets.splice(idx,0,ns); }
   else { e.sets.push(ns); idx=e.sets.length-1; }
@@ -612,7 +623,8 @@ function renderLog(){
       if(x.setType==='working' && num(x.weightKg)==null) return;
       const tag=x.setType==='warmup'?'Warm-up':x.setType==='technique'?'Tech':'Set '+(++wn);
       const editing=ui.edit&&ui.edit.eid===e.id&&ui.edit.idx===j;
-      loggedHtml+=`<div class="logged-row${editing?' editing':''}"><button type="button" class="logged-main" data-editset="${j}"><span class="logged-tag">${tag}</span><span class="logged-val">${x.weightKg==null?'—':fmt(+x.weightKg)}×${x.reps==null?'—':fmt(+x.reps)}${x.perSide?' /side':''}${x.rir==null?'':' · '+fmt(+x.rir)+' RIR'}</span></button><button type="button" class="logged-x" data-delset="${j}" aria-label="Remove set">×</button></div>`;
+      const stamped=x.variation && norm(x.variation)!==norm(e.performedExercise)?' · '+esc(x.variation):'';
+      loggedHtml+=`<div class="logged-row${editing?' editing':''}"><button type="button" class="logged-main" data-editset="${j}"><span class="logged-tag">${tag}</span><span class="logged-val">${x.weightKg==null?'—':fmt(+x.weightKg)}×${x.reps==null?'—':fmt(+x.reps)}${x.perSide?' /side':''}${x.rir==null?'':' · '+fmt(+x.rir)+' RIR'}${stamped}</span></button><button type="button" class="logged-x" data-delset="${j}" aria-label="Remove set">×</button></div>`;
     });
   }
   const wu=r?r.warmupSets:null;
@@ -793,7 +805,7 @@ function renderHistory(){
      ${s.loggedLate?'<span class="badge b-na">logged late</span>':''} ${s.entries.some(e=>e.discomfort)?'<span class="badge b-hold">discomfort</span>':''}
      <div class="small muted" style="margin-top:4px">${sets} working sets · ${s.entries.filter(e=>e.substitutionUsed!=='none').length} subs</div></div>
      <div class="row">${s.status!=='skipped'?`<button class="btn sm" data-open="${s.id}">Open</button>`:''}<button class="btn sm danger" data-del="${s.id}">Delete</button></div></div>
-     ${s.entries.length?`<div class="small" style="margin-top:8px">${s.entries.map(e=>`${esc(e.performedExercise)}${e.cutShort?' ✂':''}: ${workSets(e).map(x=>fmt(+x.weightKg)+(x.reps!=null?'×'+x.reps:'')).join(', ')||'—'}`).join('<br>')}</div>`:''}
+     ${s.entries.length?`<div class="small" style="margin-top:8px">${s.entries.map(historyLine).join('<br>')}</div>`:''}
      </div>`}).join('')}`;
   $('#bf').onclick=()=>{ ui.date=addDays(todayISO(),-1); ui.dayId=null; ui.homeDay=null; ui.focusId=null; ui.edit=null; ui.logging=true; tab='log'; document.querySelector('[data-tab=log]').click(); };
   const db=$('#dismissGaps'); if(db) db.onclick=()=>{ S.settings.dismissedGapKeys=PF.dismissedGapKeys(loggingGaps(), S.settings); save(); renderHistory(); };
@@ -814,9 +826,32 @@ function loggingGaps(){
 }
 
 /* ---------- PROGRESS ---------- */
+function historyLine(e){
+  const groups=[];
+  workSets(e).forEach(x=>{
+    const name=VV.variationOf(e,x)||e.performedExercise;
+    let g=groups.find(g=>norm(g.name)===norm(name));
+    if(!g){ g={name, bits:[]}; groups.push(g); }
+    g.bits.push(fmt(+x.weightKg)+(x.reps!=null?'×'+x.reps:''));
+  });
+  const cut=e.cutShort?' ✂':'';
+  if(!groups.length) return esc(e.performedExercise)+cut+': —';
+  return groups.map(g=>esc(g.name)+cut+': '+g.bits.join(', ')).join('<br>');
+}
+function loggedVariationNames(){
+  const names=[];
+  S.sessions.forEach(s=>{
+    if(!s || s.status==='skipped') return;
+    (s.entries||[]).forEach(e=>workSets(e).forEach(x=>{
+      const n=VV.variationOf(e,x);
+      if(n && !names.includes(n)) names.push(n);
+    }));
+  });
+  return names.sort((a,b)=>a.localeCompare(b));
+}
 function renderProgress(){
   const v=$('#view');
-  const names = [...new Set(S.sessions.flatMap(s=>s.entries.filter(e=>workSets(e).length).map(e=>e.performedExercise)))].sort();
+  const names = loggedVariationNames();
   if (!ui.progEx || !names.includes(ui.progEx)) ui.progEx = names[0];
   const weeks = [...new Set(S.sessions.map(s=>mondayOf(s.date)))].sort();
   if (!ui.volWeek) ui.volWeek = weeks[weeks.length-1] || mondayOf(todayISO());
@@ -863,7 +898,7 @@ function renderProgress(){
   $('#cal').innerHTML = calendar();
   // 6 RIR accuracy
   const dev={};
-  S.sessions.forEach(s=>s.entries.forEach(e=>{ const r=targetFor(e.plannedExerciseId, sesWeek(s)||2); if(!r) return; let k=0; e.sets.forEach(x=>{ if(x.setType!=='working') return; const t=k===0?r.rirSet1:(r.rirSet2??r.rirSet1); k++; if(num(x.rir)==null||t==null) return; (dev[e.performedExercise]=dev[e.performedExercise]||[]).push(+x.rir-t); }); }));
+  S.sessions.forEach(s=>s.entries.forEach(e=>{ const r=targetFor(e.plannedExerciseId, sesWeek(s)||2); if(!r) return; let k=0; e.sets.forEach(x=>{ if(x.setType!=='working') return; const t=k===0?r.rirSet1:(r.rirSet2??r.rirSet1); k++; if(num(x.rir)==null||t==null) return; const name=VV.variationOf(e,x); (dev[name]=dev[name]||[]).push(+x.rir-t); }); }));
   const dk=Object.keys(dev);
   charts.push(new Chart($('#c6'),{type:'bar',data:{labels:dk.length?dk:['(no RIR logged yet)'],datasets:[{label:'avg RIR deviation',data:dk.map(k=>+(dev[k].reduce((a,b)=>a+b,0)/dev[k].length).toFixed(2)),backgroundColor:dk.map(k=>{const a=dev[k].reduce((x,y)=>x+y,0)/dev[k].length;return Math.abs(a)<=.5?'#16a34a':'#d97706'})}]},options:{...base,indexAxis:'y'}}));
   // 7 substitution rate
@@ -873,7 +908,7 @@ function renderProgress(){
   const tot=sk.reduce((a,k)=>a+sub[k].n,0), tsub=sk.reduce((a,k)=>a+sub[k].s,0);
   charts.push(new Chart($('#c7'),{type:'bar',data:{labels:sk,datasets:[{label:`% substituted (overall ${tot?Math.round(100*tsub/tot):0}%)`,data:sk.map(k=>Math.round(100*sub[k].s/sub[k].n)),backgroundColor:'#2563eb'}]},options:{...base,indexAxis:'y',scales:{x:{max:100}}}}));
   // 8 progression table
-  const rows = names.map(n=>{ const e=S.sessions.flatMap(s=>s.entries).find(x=>x.performedExercise===n); return [n, progression(n, e&&e.plannedExerciseId)]; });
+  const rows = names.map(n=>{ const e=S.sessions.flatMap(s=>s.entries).find(x=>workSets(x).some(set=>norm(VV.variationOf(x,set))===norm(n))); return [n, progression(n, e&&e.plannedExerciseId)]; });
   S.baselineBests.forEach(b=>{ if(!names.some(n=>norm(n)===norm(b.exercise))) rows.push([b.exercise, progression(b.exercise, b.exerciseId)]); });
   const bcls={add:'b-add',hold:'b-hold',stall:'b-stall',reps:'b-reps',na:'b-na',deload:'b-na'}, blab={add:'add load',hold:'hold · ext. range',stall:'stalled',reps:'add reps',na:'need reps',deload:'deload'};
   $('#progTbl').innerHTML = `<table><tr><th>Exercise</th><th>Last kg</th><th>Status</th></tr>${rows.map(([n,p])=>`<tr><td>${esc(n)}</td><td>${p.load!=null?fmt(p.load):'—'}</td><td><span class="badge ${bcls[p.status]}">${blab[p.status]}</span></td></tr>`).join('')}</table>`;
@@ -893,11 +928,10 @@ function prFeed(){
   const best={}, out=[];
   S.baselineBests.forEach(b=>{ best[norm(b.exercise)]={load:Array.isArray(b.loadKg)?Math.max(...b.loadKg):b.loadKg,e1:0,repsAt:{}}; });
   [...S.sessions].sort(cmpSes).forEach(s=>{ if(s.status==='skipped') return; s.entries.forEach(e=>{
-    const k=norm(e.performedExercise); const b=best[k]||(best[k]={load:0,e1:0,repsAt:{},fresh:true});
-    workSets(e).forEach(x=>{ const w=+x.weightKg, r=num(x.reps);
-      if (w>b.load){ out.push(`🏆 <b>${esc(e.performedExercise)}</b> load PR ${fmt(w)} kg${x.perSide?' /side':''} <span class="muted">${fmtD(s.date)}</span>`); b.load=w; }
-      if (r!=null){ if (b.repsAt[w]!=null && r>b.repsAt[w]) out.push(`💪 <b>${esc(e.performedExercise)}</b> rep PR ${r} @ ${fmt(w)} kg <span class="muted">${fmtD(s.date)}</span>`); b.repsAt[w]=Math.max(b.repsAt[w]||0,r);
-        const e1=e1rm(w,r,num(x.rir)||0); if (b.e1 && e1>b.e1) out.push(`📈 <b>${esc(e.performedExercise)}</b> e1RM PR ${e1.toFixed(1)} kg <span class="muted">${fmtD(s.date)}</span>`); b.e1=Math.max(b.e1,e1); }
+    workSets(e).forEach(x=>{ const name=VV.variationOf(e,x); const k=norm(name); const b=best[k]||(best[k]={load:0,e1:0,repsAt:{},fresh:true}); const w=+x.weightKg, r=num(x.reps);
+      if (w>b.load){ out.push(`🏆 <b>${esc(name)}</b> load PR ${fmt(w)} kg${x.perSide?' /side':''} <span class="muted">${fmtD(s.date)}</span>`); b.load=w; }
+      if (r!=null){ if (b.repsAt[w]!=null && r>b.repsAt[w]) out.push(`💪 <b>${esc(name)}</b> rep PR ${r} @ ${fmt(w)} kg <span class="muted">${fmtD(s.date)}</span>`); b.repsAt[w]=Math.max(b.repsAt[w]||0,r);
+        const e1=e1rm(w,r,num(x.rir)||0); if (b.e1 && e1>b.e1) out.push(`📈 <b>${esc(name)}</b> e1RM PR ${e1.toFixed(1)} kg <span class="muted">${fmtD(s.date)}</span>`); b.e1=Math.max(b.e1,e1); }
     }); }); });
   const baseline = S.baselineBests.map(b=>`📌 <b>${esc(b.exercise)}</b> recent best ${fmtLoad(b)}${b.status==='stalled'?' <span class="badge b-stall">stalled</span>':''}${b.mapsTo?` <span class="muted small">→ ${esc(b.mapsTo)}</span>`:''}`);
   return out.reverse().concat(baseline);
@@ -950,7 +984,7 @@ function renderSettings(){
     await sb.auth.signOut();
     toast('Signed out');
   };
-  $('#reset').onclick=()=>{ if(!confirm('Erase all of your training data on this account?')) return; S=blank(); save(); ui.dayId=null; ui.logging=false; ui.homeDay=null; ui.focusId=null; renderSettings(); toast('Cleared'); };
+  $('#reset').onclick=()=>{ if(!confirm('Erase all of your training data on this account?')) return; S=blank(); save(); ui.dayId=null; ui.logging=false; ui.homeDay=null; ui.focusId=null; ui.draft=null; renderSettings(); toast('Cleared'); };
 }
 
 function resetUi(){
@@ -966,6 +1000,7 @@ function resetUi(){
   ui.undo=null;
   ui.logging=false;
   ui.homeDay=null;
+  ui.draft=null;
   if(restTick){ clearInterval(restTick); restTick=null; }
   tab='log';
   document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('active', x.dataset.tab==='log'));

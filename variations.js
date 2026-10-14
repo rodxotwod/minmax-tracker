@@ -58,5 +58,44 @@
     return weight==null || !isFinite(weight) ? null : weight;
   }
 
-  return {norm, isRealName, variationsFor, codeFor, rememberedName, lastWeight};
+  /* A logged set keeps the name it was performed as. Older sets fall back to the entry name. */
+  function variationOf(entry, set){
+    const stamped = set && set.variation;
+    if (isRealName(stamped)) return String(stamped).trim();
+    const performed = entry && entry.performedExercise;
+    return isRealName(performed) ? String(performed).trim() : '';
+  }
+
+  function byWhen(a, b){
+    return ((a && a.date || '') + (a && a.startTime || '')).localeCompare((b && b.date || '') + (b && b.startTime || ''));
+  }
+
+  function workingSetsFor(entry, performedName){
+    const n = norm(performedName);
+    return ((entry && entry.sets) || []).filter(function(set){
+      return set && set.setType === 'working' && set.weightKg != null && set.weightKg !== '' && norm(variationOf(entry, set)) === n;
+    });
+  }
+
+  /* Last session's heaviest working weight for this variation only, plus that exposure's last reps. */
+  function lastExposure(sessions, performedName, beforeDate){
+    const list = (sessions || []).filter(function(s){
+      return s && s.status !== 'skipped' && (!beforeDate || String(s.date || '') < beforeDate);
+    }).sort(byWhen);
+    let found = null;
+    list.forEach(function(session){
+      (session.entries || []).forEach(function(entry){
+        const sets = workingSetsFor(entry, performedName);
+        if (!sets.length) return;
+        const nums = sets.map(function(set){ return +set.weightKg; }).filter(function(w){ return isFinite(w); });
+        if (!nums.length) return;
+        const last = sets[sets.length - 1];
+        const reps = last.reps == null || last.reps === '' || !isFinite(+last.reps) ? null : +last.reps;
+        found = {weight: Math.max.apply(null, nums), reps: reps, name: variationOf(entry, sets[sets.length - 1])};
+      });
+    });
+    return found;
+  }
+
+  return {norm, isRealName, variationsFor, codeFor, rememberedName, lastWeight, variationOf, workingSetsFor, lastExposure};
 });
