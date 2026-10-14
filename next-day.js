@@ -41,14 +41,14 @@
       return s && s.status !== 'skipped' && seq.indexOf(s.dayId) >= 0 && hasWork(s);
     }).sort(cmp);
     const last = trained.length ? trained[trained.length - 1] : null;
-    const computed = last ? (last.date === today ? last.dayId : nextAfter(seq, last.dayId)) : seq[0];
 
-    const todayOpen = sessions.filter(function(s){
-      return s && s.date === today && s.status !== 'skipped' && s.dayId === computed;
+    const openToday = sessions.filter(function(s){
+      return s && s.date === today && s.status !== 'skipped' && s.finished !== true && seq.indexOf(s.dayId) >= 0 && (s.finished === false || hasWork(s));
     }).sort(cmp).pop();
-    if (todayOpen) return todayOpen.dayId;
-    if (last && last.date === today) return last.dayId;
-    return computed;
+    if (openToday) return openToday.dayId;
+
+    if (!last) return seq[0];
+    return nextAfter(seq, last.dayId);
   }
 
   return { trainingDays: trainingDays, suggestedDay: suggestedDay, nextAfter: nextAfter };

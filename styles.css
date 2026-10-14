@@ -88,8 +88,18 @@ label{font-size:14px;font-weight:650;color:var(--mut);display:block}
 .ex-nav{display:grid;grid-template-columns:56px 1fr 56px;gap:8px;align-items:center}
 .ex-nav .nav-arrow{min-height:56px;min-width:56px;border-radius:14px;border:1px solid var(--line);background:#fff;font-size:32px;font-weight:700;line-height:1;color:var(--txt)}
 .ex-kicker{font-size:13px;font-weight:750;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
-.ex-name{font-weight:800;font-size:22px;letter-spacing:-.03em;line-height:1.15;overflow-wrap:anywhere}
+.ex-name-row{display:flex;align-items:flex-start;gap:8px}
+.ex-name{flex:1;min-width:0;font-weight:800;font-size:22px;letter-spacing:-.03em;line-height:1.15;overflow-wrap:anywhere}
+.swap-btn{flex:none;width:32px;height:32px;min-height:32px;margin-top:1px;padding:0;border-radius:8px;border:1px solid var(--line);background:#fff;color:var(--mut);display:flex;align-items:center;justify-content:center}
+.swap-btn:active{background:var(--card2);color:var(--txt)}
 .ex-planned{font-size:14px;color:var(--mut);margin-top:2px}
+.last-done{padding:12px 16px}
+.last-done-line{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-top:2px}
+.last-done-line b{font-size:18px;letter-spacing:-.02em}
+.swap-list{display:flex;flex-direction:column;gap:8px}
+.swap-opt{width:100%;min-height:44px;text-align:left;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:#fff;font-weight:700;font-size:15px;line-height:1.25}
+.swap-opt.on{border-color:var(--acc);background:#ecfdf3;color:var(--acc)}
+dialog:has(.swap-list){width:min(360px,94vw);padding:14px}
 .meta-line{margin:8px 0 0;font-size:15px;font-weight:650;color:#1f2937}
 .last-line{margin:4px 0 0}
 
@@ -201,13 +211,5 @@ body.auth{padding-bottom:calc(24px + env(safe-area-inset-bottom))}
   .charts{grid-template-columns:1fr 1fr}
   .chartbox{height:280px}
   .log-wrap{max-width:680px;margin:0 auto}
-  #view > .banner, #view > .hero{max-width:640px;margin-left:auto;margin-right:auto}
-  .tabs{top:0;bottom:auto;left:auto;right:12px;width:auto;background:none;border:0;box-shadow:none;height:auto;padding-bottom:0;align-items:center}
-  .tabs button{flex-direction:row;min-height:32px;padding:0 8px;font-size:13px;font-weight:650;gap:4px}
-  .tabs button span{font-size:14px}
-  body{padding-bottom:24px}
-  .top{padding-right:360px}
-  .dock{position:sticky;bottom:12px;margin-top:12px;border:1px solid var(--line);border-radius:16px}
-  .toast{bottom:30px}
-  .sticky-actions{bottom:0}
+  #view > .banner, #view > .hero, #view > .last-done{max-width:640px;margin-left:auto;margin-right:auto}
 }
