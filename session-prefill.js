@@ -48,11 +48,34 @@
     return !settings.currentWeek && !settings.dismissWeekBanner;
   }
 
-  function visibleGaps(gaps, settings){
-    const list = (gaps || []).slice();
-    if (settings && settings.dismissBackfillBanner) return list.filter(function(g){ return !/back-fill\?/.test(String(g)); });
-    return list;
+  function gapKey(gap){
+    if (gap && typeof gap === 'object' && gap.key) return gap.key;
+    const text = String(gap && gap.text != null ? gap.text : gap);
+    if (/back-fill\?/.test(text)) return 'backfill';
+    return 'text:' + text;
   }
 
-  return {incrementKg, prefillWeight, prefillReps, weekBannerVisible, visibleGaps};
+  function gapText(gap){
+    return gap && typeof gap === 'object' && gap.text != null ? String(gap.text) : String(gap);
+  }
+
+  function dismissedKeySet(settings){
+    const dismissed = {};
+    ((settings && settings.dismissedGapKeys) || []).forEach(function(k){ dismissed[k] = true; });
+    if (settings && settings.dismissBackfillBanner) dismissed.backfill = true;
+    return dismissed;
+  }
+
+  function visibleGaps(gaps, settings){
+    const dismissed = dismissedKeySet(settings);
+    return (gaps || []).filter(function(g){ return !dismissed[gapKey(g)]; });
+  }
+
+  function dismissedGapKeys(gaps, settings){
+    const keys = dismissedKeySet(settings);
+    (gaps || []).forEach(function(g){ keys[gapKey(g)] = true; });
+    return Object.keys(keys);
+  }
+
+  return {incrementKg, prefillWeight, prefillReps, weekBannerVisible, visibleGaps, gapKey, gapText, dismissedGapKeys};
 });

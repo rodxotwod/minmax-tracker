@@ -37,4 +37,20 @@ assert.deepStrictEqual(visibleGaps(gaps, {}), gaps);
 assert.deepStrictEqual(visibleGaps(gaps, {dismissBackfillBanner: true}), ['Wed 1 Oct Lower 1: reps/RIR missing']);
 assert.deepStrictEqual(visibleGaps(['nothing logged since Wed 1 Oct — back-fill?'], {dismissBackfillBanner: true}), []);
 
+const keyed = [
+  {key:'backfill', text:'nothing logged since Wed 1 Oct — back-fill?'},
+  {key:'s1:missing', text:'Wed 1 Oct Lower 1: 3 exercise(s) without sets'},
+  {key:'s2:noreps', text:'Thu 2 Oct Upper 1: reps/RIR missing'}
+];
+const {dismissedGapKeys} = require('../session-prefill.js');
+const dismissed = dismissedGapKeys(keyed, {});
+assert.deepStrictEqual(visibleGaps(keyed, {dismissedGapKeys: dismissed}), []);
+const later = [
+  {key:'backfill', text:'nothing logged since Fri 10 Oct — back-fill?'},
+  {key:'s1:missing', text:'Wed 1 Oct Lower 1: 4 exercise(s) without sets'}
+];
+assert.deepStrictEqual(visibleGaps(later, {dismissedGapKeys: dismissed}), [], 'the same gaps stay hidden when only the wording changes');
+const withNew = later.concat([{key:'s3:missing', text:'Sat 3 Oct Upper 2: 1 exercise(s) without sets'}]);
+assert.deepStrictEqual(visibleGaps(withNew, {dismissedGapKeys: dismissed}).map(g => g.key), ['s3:missing']);
+
 console.log('session-prefill.test.js ok');
