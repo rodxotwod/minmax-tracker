@@ -5,6 +5,7 @@ const SPEC = window.MINMAX_SPEC;
 const P = SPEC.program;
 const AC = window.MinMaxAccount;
 const PF = window.MinMaxPrefill;
+const VV = window.MinMaxVariations;
 const SEQ = MinMaxNext.trainingDays(P.weeklySplit);
 const DAY_LABEL = {upper1:'Upper 1',lower1:'Lower 1',upper2:'Upper 2',lower2:'Lower 2',armsDelts:'Arms + Delts'};
 const MUSCLE_LABEL = m => m.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
@@ -24,7 +25,7 @@ const num = v => (v===''||v==null||isNaN(+v)) ? null : +v;
 /* ---------- exercise catalogue ---------- */
 const exById = {};      // exerciseId -> base (week 2) row
 Object.values(P.days['2']).flat().forEach(e => exById[e.exerciseId]=e);
-const norm = s => String(s||'').toLowerCase().replace(/\(.*?\)/g,'').replace(/[^a-z0-9]+/g,' ').trim();
+const norm = VV.norm;
 function findExIdByName(name){
   const n = norm(name);
   for (const id in exById) if (norm(exById[id].name)===n) return id;
@@ -231,7 +232,7 @@ function ensureEntries(s){
   rows.forEach(r=>{
     if (!s.entries.some(e=>e.plannedExerciseId===r.exerciseId)){
       const prev = lastEntryFor(r.exerciseId, s.date);
-      const performed = prev && prev.substitutionUsed!=='none' && S.settings.stickySubs ? prev.performedExercise : r.name;
+      const performed = VV.rememberedName(r, prev, !S.settings || S.settings.stickySubs!==false);
       s.entries.push(newEntry(r, performed, s));
     }
   });
@@ -293,21 +294,35 @@ function previousReps(name, beforeDate){
   if(baseline && num(baseline.reps)!=null) return +baseline.reps;
   return null;
 }
+function padForVariation(s,e){
+  const r=prescriptionRow(s,e);
+  const exercise=e.plannedExerciseId?exById[e.plannedExerciseId]:null;
+  const inc=increment(e.performedExercise, exercise);
+  const reps=PF.prefillReps(previousReps(e.performedExercise, s.date), r && r.repRange);
+  return {weightKg:PF.prefillWeight(previousLoad(e.performedExercise, s.date), inc), reps, rir:r?r.rirSet1:null};
+}
 function suggestedPad(s,e){
   const r=prescriptionRow(s,e);
   const logged=e.sets.filter(x=>x.setType==='working' && num(x.weightKg)!=null);
   const lastThis=logged.length?logged[logged.length-1]:null;
-  const exercise=e.plannedExerciseId?exById[e.plannedExerciseId]:null;
-  const inc=increment(e.performedExercise, exercise);
-  const weight=lastThis?+lastThis.weightKg:PF.prefillWeight(previousLoad(e.performedExercise, s.date), inc);
-  const reps=lastThis && num(lastThis.reps)!=null ? +lastThis.reps : PF.prefillReps(previousReps(e.performedExercise, s.date), r && r.repRange);
+  if(!lastThis) return padForVariation(s,e);
   let rir=null;
   const done=logged.length;
   if(r) rir=done===0?r.rirSet1:(r.rirSet2!=null?r.rirSet2:r.rirSet1);
-  else if(lastThis && num(lastThis.rir)!=null) rir=+lastThis.rir;
-  return {weightKg:weight, reps, rir};
+  else if(num(lastThis.rir)!=null) rir=+lastThis.rir;
+  const reps=num(lastThis.reps)!=null ? +lastThis.reps : PF.prefillReps(previousReps(e.performedExercise, s.date), r && r.repRange);
+  return {weightKg:+lastThis.weightKg, reps, rir};
 }
 function padOf(s,e){ if(!ui.pad[e.id]) ui.pad[e.id]=suggestedPad(s,e); return ui.pad[e.id]; }
+function variationBar(e){
+  const ex=e.plannedExerciseId?exById[e.plannedExerciseId]:null;
+  if(!ex) return `<div class="var-picks"><button type="button" class="chip var on" data-sub="custom">Rename</button></div>`;
+  const vars=VV.variationsFor(ex);
+  const code=VV.codeFor(ex, e.performedExercise);
+  const chips=vars.map(v=>`<button type="button" class="chip var ${code===v.code?'on':''}" data-sub="${v.code}">${esc(v.name)}</button>`).join('');
+  const custom=code==='custom';
+  return `<div class="var-label">Variation</div><div class="var-picks">${chips}<button type="button" class="chip var ${custom?'on':''}" data-sub="custom">${custom?'✎ '+esc(e.performedExercise):'Other…'}</button></div>`;
+}
 function logCopy(s,e){
   const p=padOf(s,e);
   const done=workingLogged(e), tgt=workingTarget(e,s);
@@ -488,7 +503,8 @@ function renderHome(){
     const en=saved&&saved.entries.find(e=>e.plannedExerciseId===r.exerciseId);
     const done=en?workingLogged(en):0;
     const reps=r.repRange?r.repRange[0]+'–'+r.repRange[1]:'hold';
-    return {name:en?en.performedExercise:r.name, done, tgt:r.workingSets, reps, on:done>=r.workingSets && done>0};
+    const remembered=VV.rememberedName(r, lastEntryFor(r.exerciseId, todayISO()), !S.settings || S.settings.stickySubs!==false);
+    return {name:en?en.performedExercise:remembered, done, tgt:r.workingSets, reps, on:done>=r.workingSets && done>0};
   });
   const showN=4;
   v.innerHTML=`
@@ -569,10 +585,11 @@ function renderLog(){
     <div class="ex-nav">
       <button type="button" class="nav-arrow" id="exPrev" aria-label="Previous exercise">‹</button>
       <div><div class="ex-kicker">Exercise ${idx+1} of ${s.entries.length}${pg&&STATUS[pg.status]?` · ${STATUS[pg.status]}`:''}</div><div class="ex-name">${esc(e.performedExercise)}</div>
-      ${e.substitutionUsed!=='none'&&e.plannedName?`<div class="ex-planned">swap for ${esc(e.plannedName)}</div>`:''}
+      ${e.substitutionUsed!=='none'&&e.plannedName?`<div class="ex-planned">instead of ${esc(e.plannedName)}</div>`:''}
       ${!e.plannedName?`<div class="ex-planned">extra</div>`:''}</div>
       <button type="button" class="nav-arrow" id="exNext" aria-label="Next exercise">›</button>
     </div>
+    ${variationBar(e)}
     ${r?`<p class="meta-line">${r.workingSets} × ${r.repRange?r.repRange[0]+'–'+r.repRange[1]:'max hold'} · RIR ${r.rirSet1}${r.rirSet2!=null?'/'+r.rirSet2:''} · Rest ${r.rest.minMinutes}–${r.rest.maxMinutes} min</p>`:''}
     ${prev?`<p class="last-line small muted">Last ${fmtD(prev.ses.date)} · ${prev.ws.map(x=>fmt(+x.weightKg)+(x.reps!=null?'×'+x.reps:'')+(x.rir!=null?'@'+x.rir:'')).join(', ')}</p>`:''}
     ${prevFlag?`<div class="sugg hold">Low-back flag on this lift before. Swap below if you want a substitute.</div>`:''}
@@ -583,16 +600,10 @@ function renderLog(){
     </div>
     <div class="logged">${loggedHtml||'<p class="muted empty-sets">No sets yet. Set the numbers, then log.</p>'}</div>
     ${ui.edit&&ui.edit.eid===e.id?`<button type="button" class="btn ghost sm" id="cancelEdit" style="margin-top:8px">Cancel edit</button>`:''}
-    <details class="more"><summary>Swap, warm-up, flags</summary>
+    <details class="more"><summary>Warm-up, flags</summary>
       ${pg?`<div class="sugg ${pg.status==='hold'?'hold':pg.status==='stall'?'stall':pg.status==='add'?'':'info'}">${esc(pg.text)}</div>`:''}
       ${pctTxt?`<div class="small muted">Warm-up ladder: ${pctTxt}</div>`:''}
       ${w>=8?`<div class="small" style="margin-top:6px;color:#86198f">Block 2: last-set intensity techniques active.</div>`:''}
-      ${r?`<div class="chips" data-subs style="margin-top:8px">
-        <button type="button" class="chip mini sub ${e.substitutionUsed==='none'?'on':''}" data-sub="none">${esc(r.name)}</button>
-        <button type="button" class="chip mini sub ${e.substitutionUsed==='sub1'?'on':''}" data-sub="sub1">${esc(r.substitution1)}</button>
-        <button type="button" class="chip mini sub ${e.substitutionUsed==='sub2'?'on':''}" data-sub="sub2">${esc(r.substitution2)}</button>
-        <button type="button" class="chip mini sub ${e.substitutionUsed==='custom'?'on':''}" data-sub="custom">${e.substitutionUsed==='custom'?'✎ '+esc(e.performedExercise):'Other…'}</button>
-      </div>`:''}
       <div class="row" style="margin-top:8px">
         <button type="button" class="btn sm" id="wuBtn">Warm-up</button>
         ${tech?`<button type="button" class="btn sm" id="techBtn">${esc(r.intensityTechnique.split(' (')[0])}</button>`:''}
@@ -693,15 +704,25 @@ function bindLog(s,e){
   });
   const cancel=$('#cancelEdit'); if(cancel) cancel.onclick=()=>{ ui.edit=null; delete ui.pad[e.id]; keepScroll=true; renderLog(); };
   const exBase=e.plannedExerciseId?exById[e.plannedExerciseId]:null;
-  v.querySelectorAll('[data-sub]').forEach(b=>b.onclick=async()=>{
-    const k=b.dataset.sub; const r=exBase;
-    if(k==='custom'){ const name=prompt('Exercise performed instead:', e.substitutionUsed==='custom'?e.performedExercise:''); if(!name) return; e.performedExercise=name.trim(); }
-    else if(r) e.performedExercise=k==='none'?r.name:k==='sub1'?r.substitution1:r.substitution2;
-    e.substitutionUsed=k;
-    if(k!=='none' && !e.substitutionReason) e.substitutionReason=await pickReason();
-    if(k==='none') e.substitutionReason=null;
-    delete ui.pad[e.id]; ui.edit=null; touch(); keepScroll=true; renderLog();
-    toast(k==='none'?'Back to planned exercise':'Swapped → '+e.performedExercise);
+  v.querySelectorAll('[data-sub]').forEach(b=>b.onclick=()=>{
+    const k=b.dataset.sub;
+    if(k==='custom'){
+      const name=prompt('Exercise performed instead:', e.substitutionUsed==='custom'?e.performedExercise:'');
+      if(!VV.isRealName(name)) return;
+      const trimmed=name.trim();
+      const listed=exBase && VV.variationsFor(exBase).find(v=>norm(v.name)===norm(trimmed));
+      e.performedExercise=listed?listed.name:trimmed;
+      e.substitutionUsed=listed?listed.code:'custom';
+    } else if(exBase){
+      const choice=VV.variationsFor(exBase).find(v=>v.code===k);
+      if(!choice) return;
+      e.performedExercise=choice.name;
+      e.substitutionUsed=choice.code;
+    }
+    if(e.substitutionUsed==='none') e.substitutionReason=null;
+    ui.pad[e.id]=padForVariation(s,e);
+    ui.edit=null; touch(); keepScroll=true; renderLog();
+    toast('Using '+e.performedExercise);
   });
   const ps=v.querySelector('[data-perside]'); if(ps) ps.onclick=()=>{ const on=!e.sets.some(x=>x.perSide); e.sets.forEach(x=>x.perSide=on); touch(); keepScroll=true; renderLog(); };
   const cut=v.querySelector('[data-cut]'); if(cut) cut.onclick=()=>{ e.cutShort=!e.cutShort; if(e.cutShort && s.status==='completed') s.status='partial'; touch(); keepScroll=true; renderLog(); };
@@ -869,7 +890,7 @@ function renderSettings(){
     <label style="margin-top:12px">Next session</label>
     <div class="chips">${SEQ.map(d=>`<button class="chip ${nextDay()===d?'on':''}" data-nd="${d}">${DAY_LABEL[d]}</button>`).join('')}</div>
     <div class="grid2" style="margin-top:12px"><div><label>Default start time</label><input type="time" id="defT" value="${st.defaultTime||'12:00'}"></div>
-    <div><label>Remember last substitution</label><select id="sticky"><option value="">No</option><option value="1" ${st.stickySubs?'selected':''}>Yes</option></select></div></div>
+    <div><label>Remember last variation</label><select id="sticky"><option value="" ${st.stickySubs===false?'selected':''}>No</option><option value="1" ${st.stickySubs!==false?'selected':''}>Yes</option></select></div></div>
   </div>
   <div class="card"><h2>Weekly measurements <span class="muted small">(optional)</span></h2>
     <div class="grid3">${['bodyweightAvgKg','waistCm','chestCm','armCm','thighCm','sleepAvgH'].map(f=>`<div><label>${f.replace(/([A-Z])/g,' $1').replace('Avg','avg').replace('Kg',' (kg)').replace('Cm',' (cm)').replace(' H',' (h)')}</label><input inputmode="decimal" data-m="${f}" value="${(S.measurements.find(m=>m.weekStart===mondayOf(todayISO()))||{})[f]??''}"></div>`).join('')}</div>

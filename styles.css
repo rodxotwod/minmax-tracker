@@ -90,6 +90,9 @@ label{font-size:14px;font-weight:650;color:var(--mut);display:block}
 .ex-kicker{font-size:13px;font-weight:750;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
 .ex-name{font-weight:800;font-size:22px;letter-spacing:-.03em;line-height:1.15;overflow-wrap:anywhere}
 .ex-planned{font-size:14px;color:var(--mut);margin-top:2px}
+.var-label{margin-top:10px;font-size:12px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--mut)}
+.var-picks{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.var-picks .chip{white-space:normal;text-align:left;line-height:1.2;min-height:44px}
 .meta-line{margin:8px 0 0;font-size:15px;font-weight:650;color:#1f2937}
 .last-line{margin:4px 0 0}
 
