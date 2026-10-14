@@ -140,6 +140,9 @@ button.log-secondary .log-main{font-size:17px}
 .sugg.stall{background:#fef2f2;border-color:#fca5a5;color:#7f1d1d}
 .sugg.info{background:#eff6ff;border-color:#bfdbfe;color:#1e3a8a}
 .banner{background:#fffbeb;border:1px solid #fcd34d;color:#78350f;border-radius:12px;padding:10px 12px;margin-bottom:10px;font-size:15px;font-weight:650}
+.banner.banner-row{display:flex;align-items:center;gap:10px}
+.banner.banner-row > span{flex:1;min-width:0}
+button.banner-x{flex:0 0 auto;min-height:44px;padding:0 12px;border-radius:10px;border:1px solid #d97706;background:#fff;color:#78350f;font-weight:800;font-size:15px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--nav) + 96px + env(safe-area-inset-bottom));background:#111827;color:#fff;padding:8px 8px 8px 16px;border-radius:14px;opacity:0;transition:.2s;pointer-events:none;z-index:9;display:flex;align-items:center;gap:12px;max-width:calc(100vw - 24px);font-weight:700}
 .toast.show{opacity:1;pointer-events:auto}
 .toast-undo{min-height:44px;min-width:76px;border:0;border-radius:10px;background:#fff;color:#111827;font-weight:800;font-size:16px;padding:0 14px}
