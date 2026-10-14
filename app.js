@@ -4,6 +4,7 @@
 const SPEC = window.MINMAX_SPEC;
 const P = SPEC.program;
 const AC = window.MinMaxAccount;
+const PF = window.MinMaxPrefill;
 const SEQ = MinMaxNext.trainingDays(P.weeklySplit);
 const DAY_LABEL = {upper1:'Upper 1',lower1:'Lower 1',upper2:'Upper 2',lower2:'Lower 2',armsDelts:'Arms + Delts'};
 const MUSCLE_LABEL = m => m.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
@@ -101,11 +102,8 @@ function exposures(performedName, beforeDate){
   });
   return out;
 }
-function increment(name){
-  if (/barbell|smith|squat|bar /i.test(name)) return 2.5;
-  if (/\bdb\b|dumbbell/i.test(name)) return 2;
-  if (/machine|cable|pulldown|press|curl|extension|raise|row|deck|fly/i.test(name)) return null;
-  return 2.5;
+function increment(name, exercise){
+  return PF.incrementKg(name, exercise, SPEC.progressionRules);
 }
 function targetFor(pid, week){
   if (!pid) return null;
@@ -145,7 +143,7 @@ function progression(performedName, pid, beforeDate){
     x._load=load;
   });
   const last = ex[ex.length-1]; const L = Math.max(...last.ws.map(s=>+s.weightKg));
-  const inc = increment(performedName);
+  const inc = increment(performedName, pid && exById[pid]);
   const rng = range0 ? `${range0[0]}–${range0[1]+(extended?2:0)}` : '';
   if (status==='add') text = `All working sets hit the top of the range at target RIR → add load: try ${inc?fmt(L+inc)+' kg':'the next stack step above '+fmt(L)+' kg'}.`;
   else if (status==='hold') text = `Reps fell below range after the load jump → keep ${fmt(L)} kg; rep range extended to ${rng} until all sets reach it.`;
@@ -279,25 +277,30 @@ function firstIncomplete(s){ return s.entries.find(e=>workingLogged(e)<workingTa
 function blankSet(type, tech, perSide){
   return {setType:type, techniqueCode:tech||null, weightKg:null, perSide:!!perSide, reps:null, rir:null, durationSec:null, notes:null};
 }
+function previousLoad(name, beforeDate){
+  const prev=exposures(name, beforeDate).pop();
+  if(prev && prev.ws.length) return Math.max(...prev.ws.map(x=>+x.weightKg));
+  const baseline=S.baselineBests.find(b=>norm(b.exercise)===norm(name));
+  if(!baseline) return null;
+  const L=Array.isArray(baseline.loadKg)?baseline.loadKg[baseline.loadKg.length-1]:baseline.loadKg;
+  return num(L);
+}
+function previousReps(name, beforeDate){
+  const prev=exposures(name, beforeDate).pop();
+  const prevWs=prev&&prev.ws.length?prev.ws[prev.ws.length-1]:null;
+  if(prevWs && num(prevWs.reps)!=null) return +prevWs.reps;
+  const baseline=S.baselineBests.find(b=>norm(b.exercise)===norm(name));
+  if(baseline && num(baseline.reps)!=null) return +baseline.reps;
+  return null;
+}
 function suggestedPad(s,e){
   const r=prescriptionRow(s,e);
-  const pg=progression(e.performedExercise, e.plannedExerciseId, s.date);
-  const prev=exposures(e.performedExercise, s.date).pop();
   const logged=e.sets.filter(x=>x.setType==='working' && num(x.weightKg)!=null);
   const lastThis=logged.length?logged[logged.length-1]:null;
-  const prevWs=prev&&prev.ws.length?prev.ws[prev.ws.length-1]:null;
-  const inc=increment(e.performedExercise);
-  let sugW=null;
-  if(pg.load!=null) sugW=(pg.status==='add' && inc)?+(pg.load+inc):+pg.load;
-  const weight=lastThis?+lastThis.weightKg:(sugW!=null?sugW:(prevWs?+prevWs.weightKg:null));
-  let reps=null;
-  if(lastThis && num(lastThis.reps)!=null) reps=+lastThis.reps;
-  else if(prevWs && num(prevWs.reps)!=null) reps=+prevWs.reps;
-  else if(r && r.repRange) reps=r.repRange[0];
-  if(!lastThis && pg.status==='reps' && r && r.repRange && reps!=null){
-    const cap=r.repRange[1]+(pg.extended?2:0);
-    reps=Math.min(cap, reps+1);
-  }
+  const exercise=e.plannedExerciseId?exById[e.plannedExerciseId]:null;
+  const inc=increment(e.performedExercise, exercise);
+  const weight=lastThis?+lastThis.weightKg:PF.prefillWeight(previousLoad(e.performedExercise, s.date), inc);
+  const reps=lastThis && num(lastThis.reps)!=null ? +lastThis.reps : PF.prefillReps(previousReps(e.performedExercise, s.date), r && r.repRange);
   let rir=null;
   const done=logged.length;
   if(r) rir=done===0?r.rirSet1:(r.rirSet2!=null?r.rirSet2:r.rirSet1);
@@ -463,6 +466,15 @@ function startSession(dayId){
   ui.logging=true;
   render();
 }
+function weekBannerHtml(){
+  if(!PF.weekBannerVisible(S.settings)) return '';
+  return `<div class="banner banner-row"><span>Program week not set. Suggestions use standard targets until you <a href="#" id="goSet" style="color:inherit">set your current week</a>.</span><button type="button" class="banner-x" id="dismissWeek">Dismiss</button></div>`;
+}
+function bindWeekBanner(){
+  const g=$('#goSet'); if(g) g.onclick=ev=>{ ev.preventDefault(); document.querySelector('[data-tab=settings]').click(); };
+  const d=$('#dismissWeek'); if(d) d.onclick=()=>{ S.settings.dismissWeekBanner=true; save(); render(); };
+}
+function shownGaps(){ return PF.visibleGaps(loggingGaps(), S.settings); }
 function renderHome(){
   const v=$('#view');
   const planned=nextDay();
@@ -480,7 +492,7 @@ function renderHome(){
   });
   const showN=4;
   v.innerHTML=`
-  ${!S.settings.currentWeek?`<div class="banner">Program week not set. Suggestions use standard targets until you <a href="#" id="goSet" style="color:inherit">set your current week</a>.</div>`:''}
+  ${weekBannerHtml()}
   <section class="card hero">
     <div class="hero-kicker">${saved?'In progress':'Next up'}</div>
     <h2 class="hero-title">${esc(DAY_LABEL[day])}</h2>
@@ -491,7 +503,7 @@ function renderHome(){
     <button type="button" class="btn pri start-btn" id="startBtn">${saved?'Continue '+esc(DAY_LABEL[day]):'Start '+esc(DAY_LABEL[day])}</button>
     <div class="switch-line"><span>Switch workout</span><div class="chips wrap">${SEQ.map(d=>`<button type="button" class="chip mini ${d===day?'on':''}" data-home-day="${d}">${esc(DAY_LABEL[d])}</button>`).join('')}</div></div>
   </section>`;
-  const g=$('#goSet'); if(g) g.onclick=ev=>{ ev.preventDefault(); document.querySelector('[data-tab=settings]').click(); };
+  bindWeekBanner();
   $('#startBtn').onclick=()=>startSession(day);
   v.querySelectorAll('[data-home-day]').forEach(b=>b.onclick=()=>{ ui.homeDay=b.dataset.homeDay; renderHome(); });
   const on=v.querySelector('[data-home-day].on');
@@ -539,7 +551,7 @@ function renderLog(){
   const restLeft=Math.ceil((ui.restUntil-Date.now())/1000);
   const restBlock=restLeft>0?`<div class="rest" id="restBar"><div class="rest-clock" id="restTime" aria-live="polite">${fmtClock(restLeft)}</div><div class="rest-meta"><b>Rest</b><span>${esc(ui.restLabel||'')}</span></div><button type="button" class="rest-btn" id="restPlus">+30s</button><button type="button" class="rest-btn" id="restSkip">Skip</button></div>`:'';
   v.innerHTML=`<div class="log-wrap">
-  ${!S.settings.currentWeek?`<div class="banner">Program week not set. Suggestions use standard targets until you <a href="#" id="goSet" style="color:inherit">set your current week</a>.</div>`:''}
+  ${weekBannerHtml()}
   <div class="card context-card">
     <div class="row between"><button type="button" class="home-link" id="toHome">Home</button><span class="pill ${wi&&wi.deload?'warn':'blue'}">${w?`Wk ${w}`:'Wk ?'}</span></div>
     <div class="row between" style="margin-top:6px"><h2 style="margin:0">${late?'Back-fill':'Today'} · ${fmtD(ui.date)}</h2><span class="muted small">${esc(DAY_LABEL[s.dayId])}${s.startTime?' · '+esc(s.startTime):''}</span></div>
@@ -631,7 +643,7 @@ function renderLog(){
 function bindLog(s,e){
   const v=$('#view');
   const touch=()=>{ commit(s); };
-  const g=$('#goSet'); if(g) g.onclick=ev=>{ ev.preventDefault(); document.querySelector('[data-tab=settings]').click(); };
+  bindWeekBanner();
   const home=$('#toHome'); if(home) home.onclick=()=>{ ui.logging=false; ui.restUntil=0; render(); scrollTo(0,0); };
   v.querySelectorAll('[data-date]').forEach(b=>b.onclick=()=>{ ui.date=b.dataset.date; ui.focusId=null; ui.edit=null; ui.pad={}; renderLog(); });
   const pick=$('#pickDate'); if(pick) pick.onchange=ev=>{ if(ev.target.value){ ui.date=ev.target.value; ui.focusId=null; ui.edit=null; ui.pad={}; renderLog(); } };
@@ -718,9 +730,10 @@ function pickReason(opts=['equipment_unavailable','discomfort','preference','oth
 /* ---------- HISTORY ---------- */
 function renderHistory(){
   const v=$('#view'); const ss=[...S.sessions].sort(cmpSes).reverse();
-  const gaps = loggingGaps();
+  const gaps = shownGaps();
+  const canDismissBackfill = !S.settings.dismissBackfillBanner && loggingGaps().some(g=>/back-fill\?/.test(g));
   v.innerHTML = `<div class="card"><div class="row between"><h2 style="margin:0">History</h2><button class="btn sm pri" id="bf">+ Back-fill a past day</button></div>
-   ${gaps.length?`<div class="banner" style="margin-top:10px">${gaps.length} possible logging gap(s): ${gaps.slice(0,3).map(g=>esc(g)).join('; ')}</div>`:''}</div>
+   ${gaps.length?`<div class="banner banner-row" style="margin-top:10px"><span>${gaps.length} possible logging gap(s): ${gaps.slice(0,3).map(g=>esc(g)).join('; ')}</span>${canDismissBackfill?'<button type="button" class="banner-x" id="dismissBackfill">Dismiss</button>':''}</div>`:''}</div>
    ${ss.map(s=>{ const w=sesWeek(s); const sets=s.entries.reduce((a,e)=>a+workSets(e).length,0);
      return `<div class="card"><div class="hist-item"><div><b>${DAY_LABEL[s.dayId]}</b> <span class="muted small">${fmtD(s.date)} · wk ${w||'?'}</span><br>
      <span class="badge ${s.status==='completed'?'b-add':s.status==='partial'?'b-hold':'b-stall'}">${s.status}${s.skipReason?' · '+s.skipReason:''}</span>
@@ -730,6 +743,7 @@ function renderHistory(){
      ${s.entries.length?`<div class="small" style="margin-top:8px">${s.entries.map(e=>`${esc(e.performedExercise)}${e.cutShort?' ✂':''}: ${workSets(e).map(x=>fmt(+x.weightKg)+(x.reps!=null?'×'+x.reps:'')).join(', ')||'—'}`).join('<br>')}</div>`:''}
      </div>`}).join('')}`;
   $('#bf').onclick=()=>{ ui.date=addDays(todayISO(),-1); ui.dayId=null; ui.homeDay=null; ui.focusId=null; ui.edit=null; ui.logging=true; tab='log'; document.querySelector('[data-tab=log]').click(); };
+  const db=$('#dismissBackfill'); if(db) db.onclick=()=>{ S.settings.dismissBackfillBanner=true; save(); renderHistory(); };
   v.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>{ const s=S.sessions.find(x=>x.id===b.dataset.open); ui.date=s.date; ui.dayId=s.dayId; ui.homeDay=s.dayId; ui.focusId=null; ui.edit=null; ui.logging=true; document.querySelector('[data-tab=log]').click(); });
   v.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{ if(!confirm('Delete this session?')) return; S.sessions=S.sessions.filter(x=>x.id!==b.dataset.del); save(); renderHistory(); });
 }
@@ -820,7 +834,7 @@ function renderProgress(){
     {label:'Working sets',type:'bar',data:ws.map(s=>s.entries.reduce((a,e)=>a+workSets(e).length,0)),backgroundColor:'#0000001a',yAxisID:'y2'}]},
     options:{...base,scales:{y:{min:0,max:5},y1:{position:'right',grid:{display:false}},y2:{display:false}}}}));
   // 10 gaps
-  $('#gaps').innerHTML = loggingGaps().map(g=>`<li>⚠️ ${esc(g)}</li>`).join('') + S.sessions.filter(s=>s.loggedLate).map(s=>`<li class="muted">↩︎ ${fmtD(s.date)} ${DAY_LABEL[s.dayId]} logged late</li>`).join('') || '<li class="muted">No gaps 🎉</li>';
+  $('#gaps').innerHTML = shownGaps().map(g=>`<li>⚠️ ${esc(g)}</li>`).join('') + S.sessions.filter(s=>s.loggedLate).map(s=>`<li class="muted">↩︎ ${fmtD(s.date)} ${DAY_LABEL[s.dayId]} logged late</li>`).join('') || '<li class="muted">No gaps 🎉</li>';
 }
 function prFeed(){
   const best={}, out=[];
@@ -849,9 +863,10 @@ function renderSettings(){
   const v=$('#view'); const st=S.settings; const cw=weekFor(todayISO());
   v.innerHTML = `
   <div class="card"><h2>Program position</h2>
-    <label>Current program week (this calendar week)</label>
+    <label>Current program week</label>
     <div class="chips" style="flex-wrap:wrap">${P.weeks.map(w=>`<button class="chip ${cw===w.week?'on':''}" data-w="${w.week}">${w.week}${w.deload?' D':w.intro?' i':''}</button>`).join('')}</div>
-    <div class="small muted" style="margin-top:6px">Week auto-advances each Monday from here. 1 = intro, 7 = deload, techniques from 8. ${st.currentWeek?'':'<b style="color:var(--warn)">Not set yet.</b>'}</div>
+    <div class="small muted" style="margin-top:6px">Set or change this whenever you want. It auto-advances each Monday from the week you pick. 1 = intro, 7 = deload, techniques from 8. ${st.currentWeek?'':'Not set yet — suggestions use standard targets until you pick one.'}</div>
+    <div class="row" style="margin-top:12px"><button type="button" class="btn sm" id="bfSet">Back-fill a past workout</button></div>
     <label style="margin-top:12px">Next session</label>
     <div class="chips">${SEQ.map(d=>`<button class="chip ${nextDay()===d?'on':''}" data-nd="${d}">${DAY_LABEL[d]}</button>`).join('')}</div>
     <div class="grid2" style="margin-top:12px"><div><label>Default start time</label><input type="time" id="defT" value="${st.defaultTime||'12:00'}"></div>
@@ -868,6 +883,7 @@ function renderSettings(){
   </div>
   <div class="card small muted">Program structure and numbers from the coach-bot tracking spec (${esc(SPEC.meta.program)}, generated ${esc(SPEC.meta.generated)}). Units: kg. This app logs training; it doesn't give medical advice — if something hurts, use the discomfort flag and a substitution, and check with a professional.</div>`;
   v.querySelectorAll('[data-w]').forEach(b=>b.onclick=()=>{ st.currentWeek=+b.dataset.w; st.anchorDate=todayISO(); save(); renderSettings(); toast('Week set to '+b.dataset.w); });
+  $('#bfSet').onclick=()=>{ ui.date=addDays(todayISO(),-1); ui.dayId=null; ui.homeDay=null; ui.focusId=null; ui.edit=null; ui.logging=true; tab='log'; document.querySelector('[data-tab=log]').click(); };
   v.querySelectorAll('[data-nd]').forEach(b=>b.onclick=()=>{ st.nextDayOverride=b.dataset.nd; st.nextDayPinned=true; ui.homeDay=null; ui.dayId=null; save(); renderSettings(); });
   $('#defT').onchange=ev=>{st.defaultTime=ev.target.value; save();};
   $('#sticky').onchange=ev=>{st.stickySubs=!!ev.target.value; save();};
