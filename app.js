@@ -731,9 +731,8 @@ function pickReason(opts=['equipment_unavailable','discomfort','preference','oth
 function renderHistory(){
   const v=$('#view'); const ss=[...S.sessions].sort(cmpSes).reverse();
   const gaps = shownGaps();
-  const canDismissBackfill = !S.settings.dismissBackfillBanner && loggingGaps().some(g=>/back-fill\?/.test(g));
   v.innerHTML = `<div class="card"><div class="row between"><h2 style="margin:0">History</h2><button class="btn sm pri" id="bf">+ Back-fill a past day</button></div>
-   ${gaps.length?`<div class="banner banner-row" style="margin-top:10px"><span>${gaps.length} possible logging gap(s): ${gaps.slice(0,3).map(g=>esc(g)).join('; ')}</span>${canDismissBackfill?'<button type="button" class="banner-x" id="dismissBackfill">Dismiss</button>':''}</div>`:''}</div>
+   ${gaps.length?`<div class="banner banner-row" style="margin-top:10px"><span>${gaps.length} possible logging gap(s): ${gaps.slice(0,3).map(g=>esc(PF.gapText(g))).join('; ')}</span><button type="button" class="banner-x" id="dismissGaps">Dismiss</button></div>`:''}</div>
    ${ss.map(s=>{ const w=sesWeek(s); const sets=s.entries.reduce((a,e)=>a+workSets(e).length,0);
      return `<div class="card"><div class="hist-item"><div><b>${DAY_LABEL[s.dayId]}</b> <span class="muted small">${fmtD(s.date)} · wk ${w||'?'}</span><br>
      <span class="badge ${s.status==='completed'?'b-add':s.status==='partial'?'b-hold':'b-stall'}">${s.status}${s.skipReason?' · '+s.skipReason:''}</span>
@@ -743,7 +742,7 @@ function renderHistory(){
      ${s.entries.length?`<div class="small" style="margin-top:8px">${s.entries.map(e=>`${esc(e.performedExercise)}${e.cutShort?' ✂':''}: ${workSets(e).map(x=>fmt(+x.weightKg)+(x.reps!=null?'×'+x.reps:'')).join(', ')||'—'}`).join('<br>')}</div>`:''}
      </div>`}).join('')}`;
   $('#bf').onclick=()=>{ ui.date=addDays(todayISO(),-1); ui.dayId=null; ui.homeDay=null; ui.focusId=null; ui.edit=null; ui.logging=true; tab='log'; document.querySelector('[data-tab=log]').click(); };
-  const db=$('#dismissBackfill'); if(db) db.onclick=()=>{ S.settings.dismissBackfillBanner=true; save(); renderHistory(); };
+  const db=$('#dismissGaps'); if(db) db.onclick=()=>{ S.settings.dismissedGapKeys=PF.dismissedGapKeys(loggingGaps(), S.settings); save(); renderHistory(); };
   v.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>{ const s=S.sessions.find(x=>x.id===b.dataset.open); ui.date=s.date; ui.dayId=s.dayId; ui.homeDay=s.dayId; ui.focusId=null; ui.edit=null; ui.logging=true; document.querySelector('[data-tab=log]').click(); });
   v.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{ if(!confirm('Delete this session?')) return; S.sessions=S.sessions.filter(x=>x.id!==b.dataset.del); save(); renderHistory(); });
 }
@@ -752,11 +751,11 @@ function loggingGaps(){
   S.sessions.forEach(s=>{ if(s.status==='skipped') return;
     const missing=s.entries.filter(e=>!e.cutShort && e.plannedExerciseId && !workSets(e).length).length;
     const noReps=s.entries.some(e=>workSets(e).some(x=>x.reps==null));
-    if (missing) out.push(`${fmtD(s.date)} ${DAY_LABEL[s.dayId]}: ${missing} exercise(s) without sets`);
-    else if (noReps) out.push(`${fmtD(s.date)} ${DAY_LABEL[s.dayId]}: reps/RIR missing`);
+    if (missing) out.push({key:s.id+':missing', text:`${fmtD(s.date)} ${DAY_LABEL[s.dayId]}: ${missing} exercise(s) without sets`});
+    else if (noReps) out.push({key:s.id+':noreps', text:`${fmtD(s.date)} ${DAY_LABEL[s.dayId]}: reps/RIR missing`});
   });
   const dates = S.sessions.map(s=>s.date).sort(); const last=dates[dates.length-1];
-  if (last && daysBetween(last, todayISO())>=3) out.unshift(`nothing logged since ${fmtD(last)} — back-fill?`);
+  if (last && daysBetween(last, todayISO())>=3) out.unshift({key:'backfill', text:`nothing logged since ${fmtD(last)} — back-fill?`});
   return out;
 }
 
@@ -834,7 +833,7 @@ function renderProgress(){
     {label:'Working sets',type:'bar',data:ws.map(s=>s.entries.reduce((a,e)=>a+workSets(e).length,0)),backgroundColor:'#0000001a',yAxisID:'y2'}]},
     options:{...base,scales:{y:{min:0,max:5},y1:{position:'right',grid:{display:false}},y2:{display:false}}}}));
   // 10 gaps
-  $('#gaps').innerHTML = shownGaps().map(g=>`<li>⚠️ ${esc(g)}</li>`).join('') + S.sessions.filter(s=>s.loggedLate).map(s=>`<li class="muted">↩︎ ${fmtD(s.date)} ${DAY_LABEL[s.dayId]} logged late</li>`).join('') || '<li class="muted">No gaps 🎉</li>';
+  $('#gaps').innerHTML = loggingGaps().map(g=>`<li>⚠️ ${esc(g.text)}</li>`).join('') + S.sessions.filter(s=>s.loggedLate).map(s=>`<li class="muted">↩︎ ${fmtD(s.date)} ${DAY_LABEL[s.dayId]} logged late</li>`).join('') || '<li class="muted">No gaps 🎉</li>';
 }
 function prFeed(){
   const best={}, out=[];
