@@ -555,52 +555,13 @@ function bindWeekBanner(){
   const d=$('#dismissWeek'); if(d) d.onclick=()=>{ S.settings.dismissWeekBanner=true; save(); render(); };
 }
 function shownGaps(){ return PF.visibleGaps(loggingGaps(), S.settings); }
-const FAIL_LABEL={trueFailure:'True failure', noAttemptedFailedRep:'No attempted failed rep'};
 const SWAP_ICON='<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13M14 4l4 4-4 4M20 16H7M10 12l-4 4 4 4"/></svg>';
-function warmupPercents(count, load){
-  const pcts=(SPEC.warmupProtocol&&SPEC.warmupProtocol.specificSetsPercentOfWorkingWeight[String(count)])||[];
-  if(!pcts.length) return '';
-  const pct=pcts.map(p=>p+'%').join(' / ');
-  const label=count===1?'1 set':count+' sets';
-  if(load==null) return label+': '+pct;
-  const kg=pcts.map(pc=>fmt(Math.round(load*pc/100*2)/2)).join(' / ');
-  return label+': '+pct+' · '+kg+' kg';
-}
-function programFactsHtml(r, week, load){
+function metaLine(r){
   if(!r) return '';
-  const reps=r.repRange?r.repRange[0]+'–'+r.repRange[1]:'Max hold';
-  const wu=r.warmupSets||[0,0];
-  const wuLabel=wu[0]===wu[1]?String(wu[0]):wu[0]+'–'+wu[1];
-  const ladders=[];
-  [wu[0],wu[1]].forEach(n=>{
-    if(n>0 && !ladders.some(x=>x.n===n)){
-      const txt=warmupPercents(n, load);
-      if(txt) ladders.push(txt);
-    }
-  });
-  const rir=r.rirSet2==null?('Set 1: '+r.rirSet1):('Set 1: '+r.rirSet1+' · Set 2: '+r.rirSet2);
-  const rest=r.rest?r.rest.minMinutes+'–'+r.rest.maxMinutes+' min':'—';
-  const alts=[r.substitution1,r.substitution2].filter(x=>x!=null && String(x).trim()!=='');
-  const tech=r.intensityTechnique?(r.intensityTechnique+(week>=8?' · last set':' · from week 8')):'None';
-  const muscles=(r.muscles||[]).map(MUSCLE_LABEL).join(', ');
-  const row=(dt,dd)=>`<div><dt>${dt}</dt><dd>${dd}</dd></div>`;
-  return `<dl class="prog-facts">
-    ${row('Warm-up sets', esc(wuLabel)+(ladders.length?`<span class="fact-sub">${esc(ladders.join(' · '))}</span>`:''))}
-    ${row('Working sets', esc(r.workingSets))}
-    ${row('Reps', esc(reps))}
-    ${row('Intensity (RIR)', esc(rir))}
-    ${row('Rest', esc(rest))}
-    ${row('Failure', esc(FAIL_LABEL[r.failureMode]||r.failureMode||'—'))}
-    ${row('Muscles', esc(muscles||'—'))}
-    ${row('Last-set technique', esc(tech))}
-    ${row('Alternatives', alts.length?alts.map(a=>esc(a)).join(' · '):'None')}
-  </dl>`;
-}
-function dayWarmupHtml(){
-  const g=SPEC.warmupProtocol&&SPEC.warmupProtocol.general;
-  if(!g) return '';
-  const mins=g.minutes?g.minutes[0]+'–'+g.minutes[1]+' min':'';
-  return `<p class="day-warm">${esc(g.type)} ${esc(mins)}. ${esc((SPEC.warmupProtocol&&SPEC.warmupProtocol.rule)||'')}</p>`;
+  const reps=r.repRange?r.repRange[0]+'–'+r.repRange[1]:'max hold';
+  const rir='RIR '+r.rirSet1+(r.rirSet2!=null?'/'+r.rirSet2:'');
+  const rest=r.rest?`Rest ${r.rest.minMinutes}–${r.rest.maxMinutes} min`:'';
+  return [r.workingSets+' × '+reps, rir, rest].filter(Boolean).join(' · ');
 }
 function renderHome(){
   const v=$('#view');
@@ -617,7 +578,7 @@ function renderHome(){
     const doneEn=en?workingLogged(en):0;
     const reps=r.repRange?r.repRange[0]+'–'+r.repRange[1]:'hold';
     const remembered=VV.rememberedName(r, lastEntryFor(r.exerciseId, todayISO()), !S.settings || S.settings.stickySubs!==false);
-    return {name:en?en.performedExercise:remembered, done:doneEn, tgt:r.workingSets, reps, on:doneEn>=r.workingSets && doneEn>0, row:r};
+    return {name:en?en.performedExercise:remembered, done:doneEn, tgt:r.workingSets, reps, on:doneEn>=r.workingSets && doneEn>0};
   });
   v.innerHTML=`
   ${weekBannerHtml()}
@@ -627,10 +588,9 @@ function renderHome(){
     <h2 class="hero-title">${esc(DAY_LABEL[day])}</h2>
     <p class="hero-meta">${w?`Week ${w}${wi&&wi.deload?' · Deload':''}${wi&&wi.intro?' · Intro':''}`:'Week not set'} · ${rows.length} exercises${prog?` · ${prog.done}/${prog.total} sets`:''}${saved&&saved.startTime?` · ${esc(saved.startTime)}`:''}</p>
     ${day!==planned?`<p class="hero-note">Program next is ${esc(DAY_LABEL[planned])}</p>`:''}
+    <ul class="preview">${items.map(it=>`<li class="${it.on?'on':''}"><span>${esc(it.name)}</span><span class="pv-sets">${it.done?it.done+'/':''}${it.tgt}× ${it.reps}</span></li>`).join('')}</ul>
     <button type="button" class="btn pri start-btn" id="startBtn">${saved?'Continue '+esc(DAY_LABEL[day]):'Start '+esc(DAY_LABEL[day])}</button>
     <div class="switch-line"><span>Switch workout</span><div class="chips wrap">${SEQ.map(d=>`<button type="button" class="chip mini ${d===day?'on':''}" data-home-day="${d}">${esc(DAY_LABEL[d])}</button>`).join('')}</div></div>
-    ${dayWarmupHtml()}
-    <div class="day-plan">${items.map((it,i)=>`<section class="plan-ex"><div class="plan-name"><span class="plan-n">${i+1}</span><b class="${it.on?'on':''}">${esc(it.name)}</b><span class="pv-sets">${it.done?it.done+'/':''}${it.tgt}× ${it.reps}</span></div>${programFactsHtml(it.row, w||2)}</section>`).join('')}</div>
   </section>`;
   bindWeekBanner();
   $('#startBtn').onclick=()=>startSession(day);
@@ -663,14 +623,16 @@ function exerciseCardHtml(s,e,idx){
   const copy=logCopy(s,e);
   const STATUS={add:'Add load',hold:'Hold weight',stall:'Stalled',reps:'Add reps',deload:'Deload'};
   const loggedHtml=loggedSetsHtml(e);
+  const wu=r?r.warmupSets:null;
+  const pcts=(wu&&pg&&pg.load!=null&&SPEC.warmupProtocol)?(SPEC.warmupProtocol.specificSetsPercentOfWorkingWeight[String(wu[1])]||[]):[];
+  const pctTxt=pcts.length?pcts.map(pc=>fmt(Math.round(pg.load*pc/100*2)/2)).join(' / ')+' kg':'';
   return `<article class="card ex-card" data-card="${e.id}">
     <div class="ex-kicker">Exercise ${idx+1} of ${s.entries.length}${pg&&STATUS[pg.status]?` · ${STATUS[pg.status]}`:''}</div>
     <div class="ex-name-row"><div class="ex-name">${esc(e.performedExercise)}</div><button type="button" class="swap-btn" data-swap="${e.id}" aria-label="Swap exercise">${SWAP_ICON}</button></div>
     ${e.substitutionUsed!=='none'&&e.plannedName?`<div class="ex-planned">instead of ${esc(e.plannedName)}</div>`:''}
     ${!e.plannedName?`<div class="ex-planned">extra</div>`:''}
-    ${programFactsHtml(r, w, pg&&pg.load)}
+    ${r?`<p class="meta-line">${esc(metaLine(r))}</p>`:''}
     ${prev?`<p class="last-line small muted">Last ${fmtD(prev.ses.date)} · ${prev.ws.map(x=>fmt(+x.weightKg)+(x.reps!=null?'×'+x.reps:'')+(x.rir!=null?'@'+x.rir:'')).join(', ')}</p>`:''}
-    ${pg?`<div class="sugg ${pg.status==='hold'?'hold':pg.status==='stall'?'stall':pg.status==='add'?'':'info'}">${esc(pg.text)}</div>`:''}
     ${prevFlag?`<div class="sugg hold">Low-back flag on this lift before. Use Swap if you want a substitute.</div>`:''}
     <div class="steppers">
       <div class="stepper weight"><button type="button" class="step" data-eid="${e.id}" data-inc="weightKg" data-dir="-1" aria-label="Decrease weight">−</button><label class="step-mid"><input inputmode="decimal" enterkeyhint="done" autocomplete="off" autocorrect="off" spellcheck="false" data-eid="${e.id}" data-pad="weightKg" value="${p.weightKg==null?'':fmt(p.weightKg)}"><span class="unit">kg${perSide?' / side':''}</span></label><button type="button" class="step plus" data-eid="${e.id}" data-inc="weightKg" data-dir="1" aria-label="Increase weight">+</button></div>
@@ -680,18 +642,23 @@ function exerciseCardHtml(s,e,idx){
     <div class="logged">${loggedHtml||'<p class="muted empty-sets">No sets yet. Set the numbers, then log.</p>'}</div>
     ${ui.edit&&ui.edit.eid===e.id?`<button type="button" class="btn ghost sm" data-cancel="${e.id}" style="margin-top:8px">Cancel edit</button>`:''}
     <button type="button" class="btn pri log-btn card-log" data-log="${e.id}"><span class="log-kicker" data-logkick="${e.id}">${esc(copy.kick)}</span><span class="log-main" data-logmain="${e.id}">${esc(copy.main)}</span></button>
-    <div class="row" style="margin-top:8px">
-      <button type="button" class="btn sm" data-wu="${e.id}">Warm-up</button>
-      ${tech?`<button type="button" class="btn sm" data-tech="${e.id}">${esc(r.intensityTechnique.split(' (')[0])}</button>`:''}
-    </div>
-    <div class="chips wrap" style="margin-top:8px">
-      <button type="button" class="chip mini flag ${perSide?'on':''}" data-perside data-eid="${e.id}">Per side</button>
-      <button type="button" class="chip mini flag ${e.cutShort?'on':''}" data-cut data-eid="${e.id}">Cut short</button>
-      <button type="button" class="chip mini flag ${e.discomfort?'on':''}" data-disc data-eid="${e.id}">${isRDL?'Low-back flag':'Discomfort'}</button>
-      <button type="button" class="chip mini ${e.notes?'on':''}" data-note data-eid="${e.id}">Note</button>
-    </div>
-    ${e.notes?`<div class="small muted" style="margin-top:6px">${esc(e.notes)}</div>`:''}
-    ${e.discomfort?`<div class="small muted" style="margin-top:4px">Flag: ${esc(e.discomfort)}</div>`:''}
+    <details class="more"><summary>Warm-up, flags</summary>
+      ${pg?`<div class="sugg ${pg.status==='hold'?'hold':pg.status==='stall'?'stall':pg.status==='add'?'':'info'}">${esc(pg.text)}</div>`:''}
+      ${pctTxt?`<div class="small muted">Warm-up ladder: ${pctTxt}</div>`:''}
+      ${w>=8?`<div class="small" style="margin-top:6px;color:#86198f">Block 2: last-set intensity techniques active.</div>`:''}
+      <div class="row" style="margin-top:8px">
+        <button type="button" class="btn sm" data-wu="${e.id}">Warm-up</button>
+        ${tech?`<button type="button" class="btn sm" data-tech="${e.id}">${esc(r.intensityTechnique.split(' (')[0])}</button>`:''}
+      </div>
+      <div class="chips wrap" style="margin-top:8px">
+        <button type="button" class="chip mini flag ${perSide?'on':''}" data-perside data-eid="${e.id}">Per side</button>
+        <button type="button" class="chip mini flag ${e.cutShort?'on':''}" data-cut data-eid="${e.id}">Cut short</button>
+        <button type="button" class="chip mini flag ${e.discomfort?'on':''}" data-disc data-eid="${e.id}">${isRDL?'Low-back flag':'Discomfort'}</button>
+        <button type="button" class="chip mini ${e.notes?'on':''}" data-note data-eid="${e.id}">Note</button>
+      </div>
+      ${e.notes?`<div class="small muted" style="margin-top:6px">${esc(e.notes)}</div>`:''}
+      ${e.discomfort?`<div class="small muted" style="margin-top:4px">Flag: ${esc(e.discomfort)}</div>`:''}
+    </details>
   </article>`;
 }
 function renderLog(){
@@ -722,13 +689,11 @@ function renderLog(){
       <input type="date" class="date-pick" id="pickDate" value="${ui.date}" max="${todayISO()}">
     </div>
     ${late?`<div class="small muted" style="margin-top:6px">Past date — flagged logged late.</div>`:''}
-    ${dayWarmupHtml()}
   </div>
   ${s.entries.map((en,i)=>exerciseCardHtml(s,en,i)).join('')}
   <button type="button" class="btn" id="addCustom">Add exercise</button>
-  <div class="card session-open">
-    <h2>Session</h2>
-    <div class="grid3">
+  <details class="card session-more"><summary>Session details</summary>
+    <div class="grid3" style="margin-top:8px">
       <div><label>Start</label><input type="time" data-sf="startTime" value="${esc(s.startTime||'')}"></div>
       <div><label>Duration (min)</label><input inputmode="numeric" data-sf="durationMin" value="${s.durationMin??''}"></div>
       <div><label>Bodyweight kg</label><input inputmode="decimal" data-sf="bodyweightKg" value="${s.bodyweightKg??''}"></div>
@@ -744,7 +709,7 @@ function renderLog(){
     <div style="margin-top:8px"><label>Notes</label><textarea data-sf="notes">${esc(s.notes||'')}</textarea></div>
     <label class="row" style="margin-top:8px;color:var(--txt)"><input type="checkbox" data-sf="loggedLate" ${s.loggedLate?'checked':''} style="width:22px;min-height:22px"> Logged late</label>
     <div class="end-row"><button type="button" class="btn" id="skipBtn">Mark skipped</button><button type="button" class="btn" id="finishBtn2">Finish workout</button></div>
-  </div>
+  </details>
   ${dockInner?`<div class="dock">${dockInner}</div>`:''}
   </div>`;
   bindLog(s);
