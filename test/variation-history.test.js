@@ -59,4 +59,37 @@ assert.strictEqual(prefill('Machine Chest Press'), null);
 const remembered = VV.rememberedName(chest, sessions[1].entries[0], true);
 assert.strictEqual(remembered, 'DB Bench Press');
 
+const legHistory = [
+  session('2026-10-01', 'Leg Press', 'Leg Press', 200),
+  session('2026-10-08', 'Machine Leg Press', 'Machine Leg Press', 120)
+];
+assert.strictEqual(VV.lastExposure(legHistory, 'Leg Press', '2026-10-14').weight, 200);
+assert.strictEqual(VV.lastExposure(legHistory, 'Machine Leg Press', '2026-10-14').weight, 120);
+assert.strictEqual(PF.prefillWeight(200, PF.incrementKg('Leg Press', null, SPEC.progressionRules)), 202.5);
+assert.strictEqual(PF.prefillWeight(120, PF.incrementKg('Machine Leg Press', null, SPEC.progressionRules)), 122.5);
+assert.strictEqual(VV.lastExposure(legHistory, 'Seated Calf Raise', '2026-10-14'), null);
+
+const daysHit = {leg:[], calf:[]};
+Object.keys(SPEC.program.days).forEach(function(week){
+  Object.keys(SPEC.program.days[week]).forEach(function(day){
+    SPEC.program.days[week][day].forEach(function(row){
+      if (row.exerciseId === 'leg-press') {
+        daysHit.leg.push(week+':'+day);
+        assert.strictEqual(row.substitution3, 'Machine Leg Press', 'leg press '+week+' '+day);
+        assert.ok(VV.variationsFor(row).some(function(v){ return v.name === 'Machine Leg Press'; }));
+      }
+      if (row.exerciseId === 'standing-calf-raise') {
+        daysHit.calf.push(week+':'+day);
+        assert.strictEqual(row.substitution3, 'Seated Calf Raise', 'calf '+week+' '+day);
+        assert.ok(VV.variationsFor(row).some(function(v){ return v.name === 'Seated Calf Raise'; }));
+      }
+    });
+  });
+});
+assert.strictEqual(daysHit.leg.length, 12);
+assert.ok(daysHit.leg.every(function(k){ return k.endsWith(':lower2'); }));
+assert.strictEqual(daysHit.calf.length, 24);
+assert.ok(daysHit.calf.some(function(k){ return k.endsWith(':lower1'); }));
+assert.ok(daysHit.calf.some(function(k){ return k.endsWith(':lower2'); }));
+
 console.log('variation-history.test.js ok');

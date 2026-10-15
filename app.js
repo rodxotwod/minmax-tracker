@@ -247,7 +247,7 @@ function ensureEntries(s){
 function newEntry(r, performed, s){
   const sets=[]; const n = r? r.workingSets : 2;
   for (let i=0;i<n;i++) sets.push({setType:'working',techniqueCode:null,weightKg:null,perSide:false,reps:null,rir:null,durationSec:null,notes:null});
-  return {id:uid(), plannedExerciseId:r?r.exerciseId:null, plannedName:r?r.name:null, performedExercise:performed, substitutionUsed: r && performed!==r.name ? (performed===r.substitution1?'sub1':performed===r.substitution2?'sub2':'custom') : (r?'none':'custom'), substitutionReason:null, cutShort:false, discomfort:null, notes:null, sets};
+  return {id:uid(), plannedExerciseId:r?r.exerciseId:null, plannedName:r?r.name:null, performedExercise:performed, substitutionUsed: r ? VV.codeFor(r, performed) : 'custom', substitutionReason:null, cutShort:false, discomfort:null, notes:null, sets};
 }
 function lastEntryFor(pid, before){
   const ss = S.sessions.filter(s=>s.date<before).sort(cmpSes).reverse();

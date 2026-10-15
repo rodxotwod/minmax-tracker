@@ -21,13 +21,13 @@
   function variationsFor(exercise){
     if (!exercise || !isRealName(exercise.name)) return [];
     const out = [{code:'none', name:String(exercise.name).trim()}];
-    ['substitution1','substitution2'].forEach(function(field, i){
-      const raw = exercise[field];
-      if (!isRealName(raw)) return;
+    for (let i = 1; i <= 6; i++) {
+      const raw = exercise['substitution'+i];
+      if (!isRealName(raw)) continue;
       const name = String(raw).trim();
-      if (out.some(function(v){ return norm(v.name)===norm(name); })) return;
-      out.push({code: i===0 ? 'sub1' : 'sub2', name: name});
-    });
+      if (out.some(function(v){ return norm(v.name)===norm(name); })) continue;
+      out.push({code: 'sub'+i, name: name});
+    }
     return out;
   }
 
