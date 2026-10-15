@@ -352,11 +352,14 @@ function openSwap(s,e){
   const vars=ex?VV.variationsFor(ex):[];
   const code=ex?VV.codeFor(ex, e.performedExercise):'custom';
   const d=$('#dlg');
-  d.innerHTML=`<h3 style="margin-top:0">Swap exercise</h3>
+  d.innerHTML=`<div class="swap-head"><h3>Swap exercise</h3><button type="button" class="swap-x" data-swap-close aria-label="Close">×</button></div>
     <div class="swap-list">
       ${vars.map(v=>`<button type="button" class="swap-opt ${code===v.code?'on':''}" data-sub="${v.code}">${esc(v.name)}</button>`).join('')}
       <button type="button" class="swap-opt ${code==='custom'?'on':''}" data-sub="custom">${code==='custom'?esc(e.performedExercise):'Custom name…'}</button>
-    </div>`;
+    </div>
+    <button type="button" class="btn ghost" data-swap-close>Cancel</button>`;
+  const dismiss=()=>{ if(d.open) d.close(); };
+  d.querySelectorAll('[data-swap-close]').forEach(b=>b.onclick=ev=>{ ev.stopPropagation(); dismiss(); });
   d.querySelectorAll('[data-sub]').forEach(b=>b.onclick=()=>{
     const k=b.dataset.sub;
     d.close();
@@ -368,6 +371,18 @@ function openSwap(s,e){
     applyVariation(s,e,k);
   });
   if(d.open) d.close();
+  if(!d._swapDismiss){
+    d._swapDismiss=ev=>{
+      if(!d.open || !d.querySelector('.swap-list')) return;
+      if(ev.key==='Escape'){ ev.preventDefault(); dismiss(); return; }
+      if(ev.type!=='pointerdown') return;
+      const r=d.getBoundingClientRect();
+      const inside=ev.clientX>=r.left && ev.clientX<=r.right && ev.clientY>=r.top && ev.clientY<=r.bottom;
+      if(!inside) dismiss();
+    };
+    document.addEventListener('pointerdown', d._swapDismiss, true);
+    document.addEventListener('keydown', d._swapDismiss, true);
+  }
   d.showModal();
 }
 function logCopy(s,e){

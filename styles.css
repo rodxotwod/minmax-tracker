@@ -100,10 +100,14 @@ label{font-size:14px;font-weight:650;color:var(--mut);display:block}
 .last-done{padding:12px 16px}
 .last-done-line{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-top:2px}
 .last-done-line b{font-size:18px;letter-spacing:-.02em}
+.swap-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+.swap-head h3{margin:0;font-size:18px;letter-spacing:-.02em}
+.swap-x{flex:none;width:44px;height:44px;min-height:44px;padding:0;border-radius:12px;border:1px solid var(--line);background:#fff;color:#374151;font-size:28px;line-height:1}
 .swap-list{display:flex;flex-direction:column;gap:8px}
 .swap-opt{width:100%;min-height:44px;text-align:left;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:#fff;font-weight:700;font-size:15px;line-height:1.25}
 .swap-opt.on{border-color:var(--acc);background:#ecfdf3;color:var(--acc)}
 dialog:has(.swap-list){width:min(360px,94vw);padding:14px}
+dialog:has(.swap-list) .btn{margin-top:10px}
 .meta-line{margin:8px 0 0;font-size:15px;font-weight:650;color:#1f2937}
 .last-line{margin:4px 0 0}
 
