@@ -93,6 +93,7 @@ label{font-size:14px;font-weight:650;color:var(--mut);display:block}
 .swap-btn{flex:none;width:32px;height:32px;min-height:32px;margin-top:1px;padding:0;border-radius:8px;border:1px solid var(--line);background:#fff;color:var(--mut);display:flex;align-items:center;justify-content:center}
 .swap-btn:active{background:var(--card2);color:var(--txt)}
 .ex-planned{font-size:14px;color:var(--mut);margin-top:2px}
+.done-label{margin:8px 0 0;font-size:13px;font-weight:800;letter-spacing:.01em;color:var(--acc)}
 .ex-card .card-log{margin-top:10px}
 .ex-card .more{margin-top:4px}
 #addCustom{width:100%;margin:0 0 12px}

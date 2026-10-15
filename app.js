@@ -227,7 +227,7 @@ function getSession(date, dayId, create){
   let s = S.sessions.find(x=>x.date===date && x.dayId===dayId && x.status!=='skipped');
   if (!s && ui.draft && ui.draft._draft && ui.draft.date===date && ui.draft.dayId===dayId && ui.draft.status!=='skipped') s = ui.draft;
   if (!s && create){
-    s = {id:uid(), date, startTime:S.settings.defaultTime||'12:00', weekOverride:null, dayId, durationMin:null, soreness:null, energy:null, bodyweightKg:null, status:'completed', skipReason:null, loggedLate: date<todayISO(), notes:null, entries:[], _draft:true};
+    s = {id:uid(), date, startTime:S.settings.defaultTime||'12:00', weekOverride:null, dayId, durationMin:null, soreness:null, energy:null, bodyweightKg:null, status:'completed', skipReason:null, loggedLate: date<todayISO(), notes:null, entries:[], finished:false, _draft:true};
     ui.draft = s;
   }
   return s;
@@ -520,6 +520,11 @@ function openSession(date, dayId){
   if(!s || s.finished===true) return null;
   return s;
 }
+function canFinishWorkout(s){
+  if(!s || s.status==='skipped' || s.finished===true) return false;
+  if(s.date<todayISO() && s.finished!==false) return false;
+  return true;
+}
 function finishWorkout(s){
   s.finished=true;
   if(s.status!=='partial' && s.status!=='skipped') s.status='completed';
@@ -672,23 +677,25 @@ function renderLog(){
   if(!ui.focusId || !s.entries.some(e=>e.id===ui.focusId)){ const inc=firstIncomplete(s); ui.focusId=inc?inc.id:null; }
   if(ui.edit && !s.entries.some(e=>e.id===ui.edit.eid)) ui.edit=null;
   const w=sesWeek(s), wi=w&&weekInfo(w);
-  const late=ui.date<todayISO();
+  const inProgress=canFinishWorkout(s);
+  const late=ui.date<todayISO() && inProgress;
   const allDone=s.entries.length>0 && s.entries.every(en=>workingLogged(en)>=workingTarget(en,s));
   document.body.classList.toggle('resting', ui.restUntil>Date.now());
   const restLeft=Math.ceil((ui.restUntil-Date.now())/1000);
   const restBlock=restLeft>0?`<div class="rest" id="restBar"><div class="rest-clock" id="restTime" aria-live="polite">${fmtClock(restLeft)}</div><div class="rest-meta"><b>Rest</b><span>${esc(ui.restLabel||'')}</span></div><button type="button" class="rest-btn" id="restPlus">+30s</button><button type="button" class="rest-btn" id="restSkip">Skip</button></div>`:'';
-  const dockInner=`${restBlock}${allDone?`<button type="button" class="btn pri log-btn" id="finishBtn"><span class="log-kicker">All sets logged</span><span class="log-main">Finish workout</span></button>`:''}`;
+  const dockInner=`${restBlock}${inProgress&&allDone?`<button type="button" class="btn pri log-btn" id="finishBtn"><span class="log-kicker">All sets logged</span><span class="log-main">Finish workout</span></button>`:''}`;
   v.innerHTML=`<div class="log-wrap">
   ${weekBannerHtml()}
   <div class="card context-card">
     <div class="row between"><button type="button" class="home-link" id="toHome">Home</button><span class="pill ${wi&&wi.deload?'warn':'blue'}">${w?`Wk ${w}`:'Wk ?'}</span></div>
-    <div class="row between" style="margin-top:6px"><h2 style="margin:0">${late?'Back-fill':'Today'} · ${fmtD(ui.date)}</h2><span class="muted small">${esc(DAY_LABEL[s.dayId])}${s.startTime?' · '+esc(s.startTime):''}</span></div>
+    <div class="row between" style="margin-top:6px"><h2 style="margin:0">${inProgress?(late?'Back-fill':'Today')+' · ':''}${fmtD(ui.date)}</h2><span class="muted small">${esc(DAY_LABEL[s.dayId])}${s.startTime?' · '+esc(s.startTime):''}</span></div>
     <div class="chips wrap" style="margin-top:8px">${SEQ.map(d=>`<button type="button" class="chip mini ${d===ui.dayId?'on':''}" data-day="${d}">${esc(DAY_LABEL[d])}</button>`).join('')}</div>
     <div class="chips" style="margin-top:8px">
       ${[0,-1,-2].map(o=>{const d=addDays(todayISO(),o);return `<button type="button" class="chip mini ${d===ui.date?'on':''}" data-date="${d}">${o===0?'Today':o===-1?'Yesterday':fmtD(d)}</button>`;}).join('')}
       <input type="date" class="date-pick" id="pickDate" value="${ui.date}" max="${todayISO()}">
     </div>
     ${late?`<div class="small muted" style="margin-top:6px">Past date — flagged logged late.</div>`:''}
+    ${inProgress?'':`<p class="done-label">${s.status==='partial'?'Partial':'Completed'} ${esc(fmtD(s.date))}</p>`}
   </div>
   ${s.entries.map((en,i)=>exerciseCardHtml(s,en,i)).join('')}
   <button type="button" class="btn" id="addCustom">Add exercise</button>
@@ -708,7 +715,7 @@ function renderLog(){
     </div>
     <div style="margin-top:8px"><label>Notes</label><textarea data-sf="notes">${esc(s.notes||'')}</textarea></div>
     <label class="row" style="margin-top:8px;color:var(--txt)"><input type="checkbox" data-sf="loggedLate" ${s.loggedLate?'checked':''} style="width:22px;min-height:22px"> Logged late</label>
-    <div class="end-row"><button type="button" class="btn" id="skipBtn">Mark skipped</button><button type="button" class="btn" id="finishBtn2">Finish workout</button></div>
+    <div class="end-row"><button type="button" class="btn" id="skipBtn">Mark skipped</button>${inProgress?'<button type="button" class="btn" id="finishBtn2">Finish workout</button>':''}</div>
   </details>
   ${dockInner?`<div class="dock">${dockInner}</div>`:''}
   </div>`;
