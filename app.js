@@ -396,9 +396,7 @@ function logCopy(s,e){
 }
 function syncLogBtn(s,e){
   const copy=logCopy(s,e);
-  const card=document.querySelector('[data-card="'+e.id+'"]');
-  if(!card) return;
-  const kick=card.querySelector('[data-logkick]'), main=card.querySelector('[data-logmain]');
+  const kick=$('#logKick'), main=$('#logMain');
   if(kick) kick.textContent=copy.kick;
   if(main) main.textContent=copy.main;
 }
@@ -640,17 +638,22 @@ function exerciseCardHtml(s,e,idx){
   const tech=r&&r.intensityTechnique&&w>=8;
   const p=padOf(s,e);
   const perSide=e.sets.some(x=>x.perSide);
-  const copy=logCopy(s,e);
   const STATUS={add:'Add load',hold:'Hold weight',stall:'Stalled',reps:'Add reps',deload:'Deload'};
   const loggedHtml=loggedSetsHtml(e);
   const wu=r?r.warmupSets:null;
   const pcts=(wu&&pg&&pg.load!=null&&SPEC.warmupProtocol)?(SPEC.warmupProtocol.specificSetsPercentOfWorkingWeight[String(wu[1])]||[]):[];
   const pctTxt=pcts.length?pcts.map(pc=>fmt(Math.round(pg.load*pc/100*2)/2)).join(' / ')+' kg':'';
   return `<article class="card ex-card" data-card="${e.id}">
-    <div class="ex-kicker">Exercise ${idx+1} of ${s.entries.length}${pg&&STATUS[pg.status]?` · ${STATUS[pg.status]}`:''}</div>
-    <div class="ex-name-row"><div class="ex-name">${esc(e.performedExercise)}</div><button type="button" class="swap-btn" data-swap="${e.id}" aria-label="Swap exercise">${SWAP_ICON}</button></div>
-    ${e.substitutionUsed!=='none'&&e.plannedName?`<div class="ex-planned">instead of ${esc(e.plannedName)}</div>`:''}
-    ${!e.plannedName?`<div class="ex-planned">extra</div>`:''}
+    <div class="ex-nav">
+      <button type="button" class="nav-arrow" id="exPrev" aria-label="Previous exercise">‹</button>
+      <div>
+        <div class="ex-kicker">Exercise ${idx+1} of ${s.entries.length}${pg&&STATUS[pg.status]?` · ${STATUS[pg.status]}`:''}</div>
+        <div class="ex-name-row"><div class="ex-name">${esc(e.performedExercise)}</div><button type="button" class="swap-btn" data-swap="${e.id}" aria-label="Swap exercise">${SWAP_ICON}</button></div>
+        ${e.substitutionUsed!=='none'&&e.plannedName?`<div class="ex-planned">instead of ${esc(e.plannedName)}</div>`:''}
+        ${!e.plannedName?`<div class="ex-planned">extra</div>`:''}
+      </div>
+      <button type="button" class="nav-arrow" id="exNext" aria-label="Next exercise">›</button>
+    </div>
     ${r?`<p class="meta-line">${esc(metaLine(r))}</p>`:''}
     ${prev?`<p class="last-line small muted">Last ${fmtD(prev.ses.date)} · ${prev.ws.map(x=>fmt(+x.weightKg)+(x.reps!=null?'×'+x.reps:'')+(x.rir!=null?'@'+x.rir:'')).join(', ')}</p>`:''}
     ${prevFlag?`<div class="sugg hold">Low-back flag on this lift before. Use Swap if you want a substitute.</div>`:''}
@@ -661,7 +664,6 @@ function exerciseCardHtml(s,e,idx){
     </div>
     <div class="logged">${loggedHtml||'<p class="muted empty-sets">No sets yet. Set the numbers, then log.</p>'}</div>
     ${ui.edit&&ui.edit.eid===e.id?`<button type="button" class="btn ghost sm" data-cancel="${e.id}" style="margin-top:8px">Cancel edit</button>`:''}
-    <button type="button" class="btn pri log-btn card-log" data-log="${e.id}"><span class="log-kicker" data-logkick="${e.id}">${esc(copy.kick)}</span><span class="log-main" data-logmain="${e.id}">${esc(copy.main)}</span></button>
     <details class="more"><summary>Warm-up, flags</summary>
       ${pg?`<div class="sugg ${pg.status==='hold'?'hold':pg.status==='stall'?'stall':pg.status==='add'?'':'info'}">${esc(pg.text)}</div>`:''}
       ${pctTxt?`<div class="small muted">Warm-up ladder: ${pctTxt}</div>`:''}
@@ -698,7 +700,10 @@ function renderLog(){
   document.body.classList.toggle('resting', ui.restUntil>Date.now());
   const restLeft=Math.ceil((ui.restUntil-Date.now())/1000);
   const restBlock=restLeft>0?`<div class="rest" id="restBar"><div class="rest-clock" id="restTime" aria-live="polite">${fmtClock(restLeft)}</div><div class="rest-meta"><b>Rest</b><span>${esc(ui.restLabel||'')}</span></div><button type="button" class="rest-btn" id="restPlus">+30s</button><button type="button" class="rest-btn" id="restSkip">Skip</button></div>`:'';
-  const dockInner=`${restBlock}${inProgress&&allDone?`<button type="button" class="btn pri log-btn" id="finishBtn"><span class="log-kicker">All sets logged</span><span class="log-main">Finish workout</span></button>`:''}`;
+  const e=s.entries.find(x=>x.id===ui.focusId)||null;
+  const idx=e?s.entries.findIndex(x=>x.id===e.id):-1;
+  const copy=e?logCopy(s,e):{kick:'',main:'Log set'};
+  const dockInner=`${restBlock}${inProgress&&allDone?`<button type="button" class="btn pri log-btn" id="finishBtn"><span class="log-kicker">All sets logged</span><span class="log-main">Finish workout</span></button>`:''}${e?`<button type="button" class="btn ${inProgress&&allDone?'log-secondary':'pri'} log-btn" id="logBtn" data-log="${e.id}"><span class="log-kicker" id="logKick">${esc(copy.kick)}</span><span class="log-main" id="logMain">${esc(copy.main)}</span></button>`:''}`;
   v.innerHTML=`<div class="log-wrap">
   ${weekBannerHtml()}
   <div class="card context-card">
@@ -712,7 +717,14 @@ function renderLog(){
     ${late?`<div class="small muted" style="margin-top:6px">Past date — flagged logged late.</div>`:''}
     ${inProgress?'':`<p class="done-label">${s.status==='partial'?'Partial':'Completed'} ${esc(fmtD(s.date))}</p>`}
   </div>
-  ${s.entries.map((en,i)=>exerciseCardHtml(s,en,i)).join('')}
+  <section class="card day-overview-card">
+    <div class="ex-kicker">All exercises</div>
+    <ol class="day-overview">${s.entries.map((en,i)=>{
+      const done=workingLogged(en), tgt=workingTarget(en,s), on=e&&en.id===e.id, complete=done>=tgt&&done>0;
+      return `<li><button type="button" class="ov-row ${on?'on':''} ${complete?'done':''}" data-focus="${en.id}"><span class="ov-n">${complete?'✓':i+1}</span><span class="ov-name">${esc(en.performedExercise)}</span><span class="ov-prog">${done}/${tgt}</span></button></li>`;
+    }).join('')}</ol>
+  </section>
+  ${e?exerciseCardHtml(s,e,idx):''}
   <button type="button" class="btn" id="addCustom">Add exercise</button>
   <details class="card session-more"><summary>Session details</summary>
     <div class="grid3" style="margin-top:8px">
@@ -756,6 +768,15 @@ function bindLog(s){
   });
   v.querySelectorAll('[data-scale]').forEach(c=>c.querySelectorAll('[data-n]').forEach(b=>b.onclick=()=>{ const f=c.dataset.scale, n=+b.dataset.n; s[f]=s[f]===n?null:n; touch(); keepScroll=true; renderLog(); }));
   const add=$('#addCustom'); if(add) add.onclick=()=>{ const name=prompt('Extra exercise name:'); if(!name) return; const en=newEntry(null, name.trim(), s); s.entries.push(en); ui.focusId=en.id; touch(); renderLog(); };
+  const shift=dir=>{
+    if(!s.entries.length) return;
+    const i=Math.max(0, s.entries.findIndex(x=>x.id===ui.focusId));
+    ui.focusId=s.entries[(i+dir+s.entries.length)%s.entries.length].id;
+    ui.edit=null; renderLog();
+  };
+  const prevB=$('#exPrev'); if(prevB) prevB.onclick=()=>shift(-1);
+  const nextB=$('#exNext'); if(nextB) nextB.onclick=()=>shift(1);
+  v.querySelectorAll('[data-focus]').forEach(b=>b.onclick=()=>{ ui.focusId=b.dataset.focus; ui.edit=null; renderLog(); const card=document.querySelector('.ex-card'); if(card) card.scrollIntoView({block:'start'}); });
   v.querySelectorAll('[data-inc]').forEach(b=>{
     const entry=()=>entryOf(b.dataset.eid);
     b.addEventListener('pointerdown', ()=>{
