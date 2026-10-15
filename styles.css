@@ -85,6 +85,16 @@ label{font-size:14px;font-weight:650;color:var(--mut);display:block}
 .rail-c{font-size:11px;font-weight:750;opacity:.85}
 .rail-btn.add{font-size:28px;min-width:52px}
 
+.day-overview-card{padding:12px 12px 10px}
+.day-overview{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.ov-row{width:100%;min-height:44px;display:flex;align-items:center;gap:8px;text-align:left;background:#fff;border:1px solid var(--line);border-radius:12px;padding:8px 10px}
+.ov-row.on{border-color:var(--acc);background:#ecfdf3}
+.ov-row.done:not(.on){background:#f0fdf4}
+.ov-n{flex:none;width:1.4em;font-weight:800;color:var(--mut);font-variant-numeric:tabular-nums}
+.ov-row.on .ov-n,.ov-row.done .ov-n{color:var(--acc)}
+.ov-name{flex:1;min-width:0;font-size:15px;font-weight:750;overflow-wrap:anywhere}
+.ov-prog{flex:none;font-variant-numeric:tabular-nums;font-size:14px;font-weight:800;color:var(--mut)}
+.ov-row.on .ov-prog,.ov-row.done .ov-prog{color:var(--acc)}
 .ex-nav{display:grid;grid-template-columns:56px 1fr 56px;gap:8px;align-items:center}
 .ex-nav .nav-arrow{min-height:56px;min-width:56px;border-radius:14px;border:1px solid var(--line);background:#fff;font-size:32px;font-weight:700;line-height:1;color:var(--txt)}
 .ex-kicker{font-size:13px;font-weight:750;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
