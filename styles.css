@@ -51,6 +51,10 @@ button.btn.start-btn{width:100%;min-height:58px;margin-top:14px;font-size:18px;f
 .switch-line{margin-top:12px;display:flex;flex-direction:column;gap:6px}
 .switch-line > span{font-size:12px;font-weight:750;color:var(--mut);letter-spacing:.04em;text-transform:uppercase}
 .home-link{border:0;background:none;color:var(--acc2);font-weight:750;font-size:14px;min-height:32px;padding:0 2px}
+.discard-link{display:inline-flex;align-items:center;border:0;background:none;color:var(--mut);font-size:13px;font-weight:650;text-decoration:underline;text-underline-offset:3px;min-height:32px;padding:2px 0 0;margin-top:4px}
+dialog:has(.discard-confirm){width:min(320px,92vw)}
+.discard-confirm h3{margin:0 0 8px;font-size:18px}
+.discard-confirm p{margin:0 0 14px;font-size:15px;line-height:1.35}
 .muted{color:var(--mut)}.small{font-size:14px}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.between{justify-content:space-between}
 .chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none;max-width:100%}

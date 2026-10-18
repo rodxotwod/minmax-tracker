@@ -538,6 +538,32 @@ function canFinishWorkout(s){
   if(s.date<todayISO() && s.finished!==false) return false;
   return true;
 }
+function loggedSetCount(s){
+  return (s && s.entries || []).reduce((n,e)=>n+(e.sets||[]).filter(x=>x && x.weightKg!=null && x.weightKg!=='').length, 0);
+}
+function confirmDiscard(n){
+  const noun=n===1?'1 logged set':n+' logged sets';
+  return new Promise(res=>{
+    const d=$('#dlg');
+    let settled=false;
+    const done=v=>{ if(settled) return; settled=true; if(d.open) d.close(); res(v); };
+    d.innerHTML=`<div class="discard-confirm"><h3>Discard workout?</h3><p>${noun} will be lost.</p><div class="sets"><button type="button" class="btn danger" id="discardYes">Discard</button><button type="button" class="btn ghost" id="discardNo">Cancel</button></div></div>`;
+    $('#discardYes').onclick=()=>done(true);
+    $('#discardNo').onclick=()=>done(false);
+    d.addEventListener('cancel', ev=>{ ev.preventDefault(); done(false); }, {once:true});
+    d.showModal();
+  });
+}
+function discardWorkout(s){
+  if(ui.draft===s) ui.draft=null;
+  S.sessions=S.sessions.filter(x=>x!==s && x.id!==s.id);
+  ui.undo=null; ui.edit=null; ui.pad={}; ui.focusId=null; ui.restUntil=0;
+  ui.logging=false; ui.dayId=null; ui.homeDay=null;
+  save();
+  if(USER && allowSync){ clearTimeout(syncT); pushFor(USER.id, S); }
+  toast('Workout discarded');
+  render();
+}
 function finishWorkout(s){
   s.finished=true;
   if(s.status!=='partial' && s.status!=='skipped') s.status='completed';
@@ -715,7 +741,7 @@ function renderLog(){
       <input type="date" class="date-pick" id="pickDate" value="${ui.date}" max="${todayISO()}">
     </div>
     ${late?`<div class="small muted" style="margin-top:6px">Past date — flagged logged late.</div>`:''}
-    ${inProgress?'':`<p class="done-label">${s.status==='partial'?'Partial':'Completed'} ${esc(fmtD(s.date))}</p>`}
+    ${inProgress?'<button type="button" class="discard-link" id="discardBtn">Discard workout</button>':`<p class="done-label">${s.status==='partial'?'Partial':'Completed'} ${esc(fmtD(s.date))}</p>`}
   </div>
   <section class="card day-overview-card">
     <div class="ex-kicker">All exercises</div>
@@ -820,6 +846,12 @@ function bindLog(s){
   v.querySelectorAll('[data-note]').forEach(b=>b.onclick=()=>{ const e=entryOf(b.dataset.eid); if(!e) return; const n=prompt('Note for '+e.performedExercise, e.notes||''); if(n===null) return; e.notes=n.trim()||null; touch(); keepScroll=true; renderLog(); });
   const finish=fn=>{ if(fn) fn.onclick=()=>finishWorkout(s); };
   finish($('#finishBtn')); finish($('#finishBtn2'));
+  const discard=$('#discardBtn');
+  if(discard) discard.onclick=async()=>{
+    const n=loggedSetCount(s);
+    if(n>0 && !await confirmDiscard(n)) return;
+    discardWorkout(s);
+  };
   const skip=$('#skipBtn'); if(skip) skip.onclick=async()=>{
     const reason=await pickReason(['soreness','illness','schedule','other'], 'Skip reason');
     if(!reason) return;
