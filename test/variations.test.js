@@ -18,6 +18,13 @@ assert.strictEqual(codeFor(chest, 'Smith Machine Bench Press'), 'sub2');
 assert.strictEqual(codeFor(chest, 'Machine Chest Press'), 'none');
 assert.strictEqual(codeFor(chest, 'Cable Chest Press'), 'custom');
 
+const press = {name:'Leg Press', substitution1:'Barbell Squat', substitution2:'Smith Machine Squat', substitution3:'Machine Leg Press'};
+assert.deepStrictEqual(variationsFor(press).map(v => v.name), ['Leg Press', 'Barbell Squat', 'Smith Machine Squat', 'Machine Leg Press']);
+assert.strictEqual(codeFor(press, 'Machine Leg Press'), 'sub3');
+const calf = {name:'Standing Calf Raise', substitution1:'Donkey Calf Raise', substitution2:'Leg Press Calf Press', substitution3:'Seated Calf Raise'};
+assert.deepStrictEqual(variationsFor(calf).map(v => v.name), ['Standing Calf Raise', 'Donkey Calf Raise', 'Leg Press Calf Press', 'Seated Calf Raise']);
+assert.strictEqual(codeFor(calf, 'Seated Calf Raise'), 'sub3');
+
 const previous = {performedExercise:'DB Bench Press', substitutionUsed:'sub1'};
 assert.strictEqual(rememberedName(chest, previous, true), 'DB Bench Press');
 assert.strictEqual(rememberedName(chest, previous, false), 'Machine Chest Press');
