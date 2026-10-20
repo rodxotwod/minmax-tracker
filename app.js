@@ -236,8 +236,7 @@ function ensureEntries(s){
   const rows = prescription(sesWeek(s), s.dayId);
   rows.forEach(r=>{
     if (!s.entries.some(e=>e.plannedExerciseId===r.exerciseId)){
-      const prev = lastEntryFor(r.exerciseId, s.date);
-      const performed = VV.rememberedName(r, prev, !S.settings || S.settings.stickySubs!==false);
+      const performed = nameForSlot(r, s.dayId, s.date, s.id);
       s.entries.push(newEntry(r, performed, s));
     }
   });
@@ -249,10 +248,16 @@ function newEntry(r, performed, s){
   for (let i=0;i<n;i++) sets.push({setType:'working',techniqueCode:null,weightKg:null,perSide:false,reps:null,rir:null,durationSec:null,notes:null});
   return {id:uid(), plannedExerciseId:r?r.exerciseId:null, plannedName:r?r.name:null, performedExercise:performed, substitutionUsed: r ? VV.codeFor(r, performed) : 'custom', substitutionReason:null, cutShort:false, discomfort:null, notes:null, sets};
 }
-function lastEntryFor(pid, before){
-  const ss = S.sessions.filter(s=>s.date<before).sort(cmpSes).reverse();
+function lastEntryFor(pid, before, dayId, exceptId){
+  const ss = S.sessions.filter(s=>s && s.status!=='skipped' && s.date<=before && (!dayId || s.dayId===dayId) && s.id!==exceptId).sort(cmpSes).reverse();
   for (const s of ss){ const e=s.entries.find(e=>e.plannedExerciseId===pid); if (e) return e; }
   return null;
+}
+function nameForSlot(row, dayId, before, exceptId){
+  const remember = !S.settings || S.settings.stickySubs!==false;
+  const explicit = remember ? VV.variationChoice(S.settings && S.settings.variationMemory, dayId, row && row.exerciseId) : null;
+  const prev = explicit ? null : lastEntryFor(row && row.exerciseId, before, dayId, exceptId);
+  return VV.rememberedName(row, prev, remember, explicit);
 }
 function commit(s){
   if (s._draft){
@@ -340,9 +345,13 @@ function applyVariation(s,e,code,customName){
     e.substitutionUsed=choice.code;
   }
   if(e.substitutionUsed==='none') e.substitutionReason=null;
+  if(S.settings && e.plannedExerciseId){
+    S.settings.variationMemory = VV.rememberVariation(S.settings.variationMemory, s.dayId, e.plannedExerciseId, e.performedExercise, e.plannedName);
+  }
   ui.pad[e.id]=padForVariation(s,e);
   ui.edit=null;
   commit(s);
+  if(USER && allowSync){ clearTimeout(syncT); pushFor(USER.id, S); }
   keepScroll=true;
   renderLog();
   toast('Using '+e.performedExercise);
@@ -621,7 +630,7 @@ function renderHome(){
     const en=saved&&saved.entries.find(e=>e.plannedExerciseId===r.exerciseId);
     const doneEn=en?workingLogged(en):0;
     const reps=r.repRange?r.repRange[0]+'–'+r.repRange[1]:'hold';
-    const remembered=VV.rememberedName(r, lastEntryFor(r.exerciseId, todayISO()), !S.settings || S.settings.stickySubs!==false);
+    const remembered=nameForSlot(r, day, todayISO());
     return {name:en?en.performedExercise:remembered, done:doneEn, tgt:r.workingSets, reps, on:doneEn>=r.workingSets && doneEn>0};
   });
   v.innerHTML=`

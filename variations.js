@@ -39,9 +39,31 @@
     return 'custom';
   }
 
-  function rememberedName(exercise, previousEntry, remember){
+  function memoryKey(dayId, exerciseId){
+    return String(dayId || '') + ':' + String(exerciseId || '');
+  }
+
+  /* Explicit choice for this day + slot. The planned name is a real value: it means the swap was reset. */
+  function variationChoice(memory, dayId, exerciseId){
+    if (!memory || !dayId || !exerciseId) return null;
+    const value = memory[memoryKey(dayId, exerciseId)];
+    return isRealName(value) ? String(value).trim() : null;
+  }
+
+  function rememberVariation(memory, dayId, exerciseId, performedName, plannedName){
+    const next = Object.assign({}, memory || {});
+    const key = memoryKey(dayId, exerciseId);
+    if (!dayId || !exerciseId) return next;
+    const name = isRealName(performedName) ? String(performedName).trim() : (isRealName(plannedName) ? String(plannedName).trim() : '');
+    if (!name) delete next[key];
+    else next[key] = name;
+    return next;
+  }
+
+  function rememberedName(exercise, previousEntry, remember, explicitName){
     const planned = exercise && isRealName(exercise.name) ? String(exercise.name).trim() : '';
     if (remember === false) return planned;
+    if (isRealName(explicitName)) return String(explicitName).trim();
     const performed = previousEntry && previousEntry.performedExercise;
     if (!isRealName(performed)) return planned;
     return String(performed).trim();
@@ -97,5 +119,5 @@
     return found;
   }
 
-  return {norm, isRealName, variationsFor, codeFor, rememberedName, lastWeight, variationOf, workingSetsFor, lastExposure};
+  return {norm, isRealName, variationsFor, codeFor, memoryKey, variationChoice, rememberVariation, rememberedName, lastWeight, variationOf, workingSetsFor, lastExposure};
 });

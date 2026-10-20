@@ -1,6 +1,6 @@
 /* Substitutions stay on the variation that was actually performed. */
 const assert = require('assert');
-const {variationsFor, codeFor, rememberedName, lastWeight, isRealName} = require('../variations.js');
+const {variationsFor, codeFor, rememberedName, lastWeight, isRealName, variationChoice, rememberVariation} = require('../variations.js');
 
 const chest = {name:'Machine Chest Press', substitution1:'DB Bench Press', substitution2:'Smith Machine Bench Press'};
 const squat = {name:'Squat (Your Choice)', substitution1:'See Notes', substitution2:'See Notes'};
@@ -29,6 +29,20 @@ const previous = {performedExercise:'DB Bench Press', substitutionUsed:'sub1'};
 assert.strictEqual(rememberedName(chest, previous, true), 'DB Bench Press');
 assert.strictEqual(rememberedName(chest, previous, false), 'Machine Chest Press');
 assert.strictEqual(rememberedName(chest, {performedExercise:'See Notes', substitutionUsed:'sub1'}, true), 'Machine Chest Press');
+
+let memory = rememberVariation({}, 'lower2', 'leg-press', 'Machine Leg Press', 'Leg Press');
+memory = rememberVariation(memory, 'lower1', 'standing-calf-raise', 'Seated Calf Raise', 'Standing Calf Raise');
+assert.strictEqual(variationChoice(memory, 'lower2', 'leg-press'), 'Machine Leg Press');
+assert.strictEqual(variationChoice(memory, 'lower1', 'leg-press'), null, 'a swap is stored per day and slot');
+assert.strictEqual(variationChoice(memory, 'lower2', 'standing-calf-raise'), null);
+assert.strictEqual(variationChoice(memory, 'lower1', 'standing-calf-raise'), 'Seated Calf Raise');
+assert.strictEqual(rememberedName(press, {performedExercise:'Leg Press'}, true, variationChoice(memory, 'lower2', 'leg-press')), 'Machine Leg Press');
+assert.strictEqual(rememberedName(press, {performedExercise:'Machine Leg Press'}, false, 'Machine Leg Press'), 'Leg Press', 'turning memory off uses the planned exercise');
+
+memory = rememberVariation(memory, 'lower2', 'leg-press', 'Leg Press', 'Leg Press');
+assert.strictEqual(variationChoice(memory, 'lower2', 'leg-press'), 'Leg Press', 'swapping back stores the original instead of falling through to an older swap');
+assert.strictEqual(rememberedName(press, {performedExercise:'Machine Leg Press'}, true, variationChoice(memory, 'lower2', 'leg-press')), 'Leg Press');
+assert.strictEqual(variationChoice(memory, 'lower1', 'standing-calf-raise'), 'Seated Calf Raise');
 
 const history = [
   {name:'Machine Chest Press', weight:80},
