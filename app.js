@@ -20,7 +20,7 @@ const addDays = (s,n) => { const d=parseD(s); d.setDate(d.getDate()+n); return i
 const mondayOf = s => { const d=parseD(s); const wd=(d.getDay()+6)%7; d.setDate(d.getDate()-wd); return iso(d); };
 const daysBetween = (a,b) => Math.round((parseD(b)-parseD(a))/864e5);
 const fmtD = s => parseD(s).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
-const num = v => (v===''||v==null||isNaN(+v)) ? null : +v;
+const num = v => PF.parseDecimal(v);
 
 /* ---------- exercise catalogue ---------- */
 const exById = {};      // exerciseId -> base (week 2) row
@@ -286,12 +286,13 @@ function progressOf(s){
   rows.forEach(r=>{
     total+=r.workingSets; seen[r.exerciseId]=1;
     const en=s.entries.find(e=>e.plannedExerciseId===r.exerciseId);
-    if(en) done+=workingLogged(en);
+    if(en) done+=en.skipped ? r.workingSets : workingLogged(en);
   });
-  s.entries.forEach(e=>{ if(e.plannedExerciseId && seen[e.plannedExerciseId]) return; total+=2; done+=workingLogged(e); });
+  s.entries.forEach(e=>{ if(e.plannedExerciseId && seen[e.plannedExerciseId]) return; total+=2; done+=e.skipped ? 2 : workingLogged(e); });
   return {done, total};
 }
-function firstIncomplete(s){ return s.entries.find(e=>workingLogged(e)<workingTarget(e,s))||s.entries[0]||null; }
+function exerciseDone(e,s){ return !!(e && (e.skipped || workingLogged(e)>=workingTarget(e,s))); }
+function firstIncomplete(s){ return s.entries.find(e=>!exerciseDone(e,s)) || s.entries.find(e=>!e.skipped) || s.entries[0] || null; }
 function blankSet(type, tech, perSide){
   return {setType:type, techniqueCode:tech||null, weightKg:null, perSide:!!perSide, reps:null, rir:null, durationSec:null, notes:null};
 }
@@ -365,6 +366,7 @@ function openSwap(s,e){
     <div class="swap-list">
       ${vars.map(v=>`<button type="button" class="swap-opt ${code===v.code?'on':''}" data-sub="${v.code}">${esc(v.name)}</button>`).join('')}
       <button type="button" class="swap-opt ${code==='custom'?'on':''}" data-sub="custom">${code==='custom'?esc(e.performedExercise):'Custom name…'}</button>
+      <button type="button" class="swap-opt swap-skip" data-skip-ex>${e.skipped?'Unskip':'Skip exercise'}</button>
     </div>
     <button type="button" class="btn ghost" data-swap-close>Cancel</button>`;
   const dismiss=()=>{ if(d.open) d.close(); };
@@ -379,6 +381,8 @@ function openSwap(s,e){
     }
     applyVariation(s,e,k);
   });
+  const skipEx=d.querySelector('[data-skip-ex]');
+  if(skipEx) skipEx.onclick=()=>{ d.close(); setExerciseSkipped(s, e, !e.skipped); };
   if(d.open) d.close();
   if(!d._swapDismiss){
     d._swapDismiss=ev=>{
@@ -424,6 +428,11 @@ function bumpPad(s,e,key,dir){
   if(inp) inp.value=fmt(next);
   syncLogBtn(s,e);
 }
+function clearRest(){
+  ui.restUntil=0;
+  if(restTick){ clearInterval(restTick); restTick=null; }
+  document.body.classList.remove('resting');
+}
 function ensureRestTick(){
   if(restTick) return;
   restTick=setInterval(()=>{
@@ -431,8 +440,7 @@ function ensureRestTick(){
     const el=document.getElementById('restTime');
     const bar=document.getElementById('restBar');
     if(left<=0){
-      clearInterval(restTick); restTick=null;
-      document.body.classList.remove('resting');
+      clearRest();
       if(bar) bar.remove();
       fitDock();
       try{ navigator.vibrate&&navigator.vibrate([200,100,200]); }catch(err){}
@@ -500,6 +508,7 @@ function doLog(s,e,type){
     if(idx<0){ e.sets.push(blankSet('working', null, perSide)); idx=e.sets.length-1; kind='insert'; }
     const prev=Object.assign({}, e.sets[idx]);
     Object.assign(e.sets[idx], {weightKg:w, reps, rir, perSide, variation: e.performedExercise});
+    if(e.skipped) e.skipped=false;
     ui.undo={kind, date:s.date, dayId:s.dayId, eid:e.id, idx, prev};
     commit(s);
     const r=prescriptionRow(s,e);
@@ -510,7 +519,7 @@ function doLog(s,e,type){
       ensureRestTick();
     }
     if(done>=tgt){
-      const next=s.entries.find(en=>en.id!==e.id && workingLogged(en)<workingTarget(en,s));
+      const next=s.entries.find(en=>en.id!==e.id && !en.skipped && workingLogged(en)<workingTarget(en,s));
       if(next) ui.focusId=next.id;
     } else if(r){
       const p2=padOf(s,e);
@@ -572,6 +581,19 @@ function discardWorkout(s){
   if(USER && allowSync){ clearTimeout(syncT); pushFor(USER.id, S); }
   toast('Workout discarded');
   render();
+}
+function setExerciseSkipped(s, e, skipped){
+  e.skipped=!!skipped;
+  ui.edit=null;
+  if(skipped){
+    const next=s.entries.find(en=>en.id!==e.id && !en.skipped && workingLogged(en)<workingTarget(en,s));
+    if(next) ui.focusId=next.id;
+  } else ui.focusId=e.id;
+  commit(s);
+  keepScroll=true;
+  renderLog();
+  if(!skipped){ const card=document.querySelector('.ex-card'); if(card) card.scrollIntoView({block:'start'}); }
+  toast(skipped?'Exercise skipped':'Exercise restored');
 }
 function finishWorkout(s){
   s.finished=true;
@@ -684,6 +706,7 @@ function exerciseCardHtml(s,e,idx){
       <div>
         <div class="ex-kicker">Exercise ${idx+1} of ${s.entries.length}${pg&&STATUS[pg.status]?` · ${STATUS[pg.status]}`:''}</div>
         <div class="ex-name-row"><div class="ex-name">${esc(e.performedExercise)}</div><button type="button" class="swap-btn" data-swap="${e.id}" aria-label="Swap exercise">${SWAP_ICON}</button></div>
+        ${e.skipped?'<div class="skip-note">Skipped this session</div>':''}
         ${e.substitutionUsed!=='none'&&e.plannedName?`<div class="ex-planned">instead of ${esc(e.plannedName)}</div>`:''}
         ${!e.plannedName?`<div class="ex-planned">extra</div>`:''}
       </div>
@@ -731,7 +754,7 @@ function renderLog(){
   const w=sesWeek(s), wi=w&&weekInfo(w);
   const inProgress=canFinishWorkout(s);
   const late=ui.date<todayISO() && inProgress;
-  const allDone=s.entries.length>0 && s.entries.every(en=>workingLogged(en)>=workingTarget(en,s));
+  const allDone=s.entries.length>0 && s.entries.every(en=>exerciseDone(en,s));
   document.body.classList.toggle('resting', ui.restUntil>Date.now());
   const restLeft=Math.ceil((ui.restUntil-Date.now())/1000);
   const restBlock=restLeft>0?`<div class="rest" id="restBar"><div class="rest-clock" id="restTime" aria-live="polite">${fmtClock(restLeft)}</div><div class="rest-meta"><b>Rest</b><span>${esc(ui.restLabel||'')}</span></div><button type="button" class="rest-btn" id="restPlus">+30s</button><button type="button" class="rest-btn" id="restSkip">Skip</button></div>`:'';
@@ -756,7 +779,8 @@ function renderLog(){
     <div class="ex-kicker">All exercises</div>
     <ol class="day-overview">${s.entries.map((en,i)=>{
       const done=workingLogged(en), tgt=workingTarget(en,s), on=e&&en.id===e.id, complete=done>=tgt&&done>0;
-      return `<li><button type="button" class="ov-row ${on?'on':''} ${complete?'done':''}" data-focus="${en.id}"><span class="ov-n">${complete?'✓':i+1}</span><span class="ov-name">${esc(en.performedExercise)}</span><span class="ov-prog">${done}/${tgt}</span></button></li>`;
+      const skipped=!!en.skipped;
+      return `<li><button type="button" class="ov-row ${on?'on':''} ${complete&&!skipped?'done':''} ${skipped?'skipped':''}" data-focus="${en.id}"><span class="ov-n">${skipped?'–':complete?'✓':i+1}</span><span class="ov-name">${esc(en.performedExercise)}</span><span class="ov-prog">${skipped?'Skipped':done+'/'+tgt}</span></button></li>`;
     }).join('')}</ol>
   </section>
   ${e?exerciseCardHtml(s,e,idx):''}
@@ -799,7 +823,9 @@ function bindLog(s){
   v.querySelectorAll('[data-sf]').forEach(inp=>inp.onchange=()=>{
     const f=inp.dataset.sf; let val=inp.type==='checkbox'?inp.checked:inp.value;
     if(['durationMin','bodyweightKg','weekOverride'].includes(f)) val=num(val);
-    s[f]=val; touch(); if(f==='weekOverride'){ keepScroll=true; renderLog(); }
+    s[f]=val;
+    if(f==='bodyweightKg' && val!=null) inp.value=fmt(val);
+    touch(); if(f==='weekOverride'){ keepScroll=true; renderLog(); }
   });
   v.querySelectorAll('[data-scale]').forEach(c=>c.querySelectorAll('[data-n]').forEach(b=>b.onclick=()=>{ const f=c.dataset.scale, n=+b.dataset.n; s[f]=s[f]===n?null:n; touch(); keepScroll=true; renderLog(); }));
   const add=$('#addCustom'); if(add) add.onclick=()=>{ const name=prompt('Extra exercise name:'); if(!name) return; const en=newEntry(null, name.trim(), s); s.entries.push(en); ui.focusId=en.id; touch(); renderLog(); };
@@ -811,7 +837,11 @@ function bindLog(s){
   };
   const prevB=$('#exPrev'); if(prevB) prevB.onclick=()=>shift(-1);
   const nextB=$('#exNext'); if(nextB) nextB.onclick=()=>shift(1);
-  v.querySelectorAll('[data-focus]').forEach(b=>b.onclick=()=>{ ui.focusId=b.dataset.focus; ui.edit=null; renderLog(); const card=document.querySelector('.ex-card'); if(card) card.scrollIntoView({block:'start'}); });
+  v.querySelectorAll('[data-focus]').forEach(b=>b.onclick=()=>{
+    const target=entryOf(b.dataset.focus);
+    if(target && target.skipped){ setExerciseSkipped(s, target, false); return; }
+    ui.focusId=b.dataset.focus; ui.edit=null; renderLog(); const card=document.querySelector('.ex-card'); if(card) card.scrollIntoView({block:'start'});
+  });
   v.querySelectorAll('[data-inc]').forEach(b=>{
     const entry=()=>entryOf(b.dataset.eid);
     b.addEventListener('pointerdown', ()=>{
@@ -853,6 +883,10 @@ function bindLog(s){
   v.querySelectorAll('[data-cut]').forEach(b=>b.onclick=()=>{ const e=entryOf(b.dataset.eid); if(!e) return; e.cutShort=!e.cutShort; if(e.cutShort && s.status==='completed') s.status='partial'; touch(); keepScroll=true; renderLog(); });
   v.querySelectorAll('[data-disc]').forEach(b=>b.onclick=()=>{ const e=entryOf(b.dataset.eid); if(!e) return; if(e.discomfort) e.discomfort=null; else { const where=prompt('Where / what? (saved as a note, e.g. "low back")', /rdl/i.test(e.performedExercise+(e.plannedName||''))?'low back':''); if(where===null) return; e.discomfort=where||'yes'; } touch(); keepScroll=true; renderLog(); });
   v.querySelectorAll('[data-note]').forEach(b=>b.onclick=()=>{ const e=entryOf(b.dataset.eid); if(!e) return; const n=prompt('Note for '+e.performedExercise, e.notes||''); if(n===null) return; e.notes=n.trim()||null; touch(); keepScroll=true; renderLog(); });
+  const restSkip=$('#restSkip');
+  if(restSkip) restSkip.onclick=()=>{ clearRest(); keepScroll=true; renderLog(); };
+  const restPlus=$('#restPlus');
+  if(restPlus) restPlus.onclick=()=>{ ui.restUntil=Math.max(ui.restUntil, Date.now())+30000; ensureRestTick(); keepScroll=true; renderLog(); };
   const finish=fn=>{ if(fn) fn.onclick=()=>finishWorkout(s); };
   finish($('#finishBtn')); finish($('#finishBtn2'));
   const discard=$('#discardBtn');
@@ -901,7 +935,7 @@ function renderHistory(){
 function loggingGaps(){
   const out=[];
   S.sessions.forEach(s=>{ if(s.status==='skipped') return;
-    const missing=s.entries.filter(e=>!e.cutShort && e.plannedExerciseId && !workSets(e).length).length;
+    const missing=s.entries.filter(e=>!e.cutShort && !e.skipped && e.plannedExerciseId && !workSets(e).length).length;
     const noReps=s.entries.some(e=>workSets(e).some(x=>x.reps==null));
     if (missing) out.push({key:s.id+':missing', text:`${fmtD(s.date)} ${DAY_LABEL[s.dayId]}: ${missing} exercise(s) without sets`});
     else if (noReps) out.push({key:s.id+':noreps', text:`${fmtD(s.date)} ${DAY_LABEL[s.dayId]}: reps/RIR missing`});
@@ -921,6 +955,7 @@ function historyLine(e){
     g.bits.push(fmt(+x.weightKg)+(x.reps!=null?'×'+x.reps:''));
   });
   const cut=e.cutShort?' ✂':'';
+  if(e.skipped && !groups.length) return esc(e.performedExercise)+': skipped';
   if(!groups.length) return esc(e.performedExercise)+cut+': —';
   return groups.map(g=>esc(g.name)+cut+': '+g.bits.join(', ')).join('<br>');
 }

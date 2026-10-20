@@ -6,6 +6,19 @@
   root.MinMaxPrefill = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function(){
   function round2(n){ return Math.round(n * 100) / 100; }
+
+  /* iOS decimal keyboards type a comma. One separator style is the decimal mark. */
+  function parseDecimal(v){
+    if (v == null) return null;
+    let s = String(v).trim().replace(/\s/g, '');
+    if (!s) return null;
+    const lastComma = s.lastIndexOf(',');
+    const lastDot = s.lastIndexOf('.');
+    if (lastComma >= 0 && lastComma > lastDot) s = s.replace(/\./g, '').replace(',', '.');
+    else s = s.replace(/,/g, '');
+    if (!isFinite(+s)) return null;
+    return +s;
+  }
   function asNumber(v, fallback){
     const n = +v;
     return isFinite(n) ? n : fallback;
@@ -77,5 +90,5 @@
     return Object.keys(keys);
   }
 
-  return {incrementKg, prefillWeight, prefillReps, weekBannerVisible, visibleGaps, gapKey, gapText, dismissedGapKeys};
+  return {parseDecimal, incrementKg, prefillWeight, prefillReps, weekBannerVisible, visibleGaps, gapKey, gapText, dismissedGapKeys};
 });

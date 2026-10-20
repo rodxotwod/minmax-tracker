@@ -2,7 +2,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const {incrementKg, prefillWeight, prefillReps, weekBannerVisible, visibleGaps} = require('../session-prefill.js');
+const {parseDecimal, incrementKg, prefillWeight, prefillReps, weekBannerVisible, visibleGaps} = require('../session-prefill.js');
 
 const specSrc = fs.readFileSync(path.join(__dirname, '../data/spec.js'), 'utf8');
 const SPEC = JSON.parse(specSrc.replace(/^window\.MINMAX_SPEC=/, '').replace(/;\s*$/, ''));
@@ -17,6 +17,14 @@ assert.strictEqual(incrementKg('DB Wrist Curl', null, rules), 2);
 assert.strictEqual(incrementKg('Lying Leg Curl', null, rules), 2.5, 'machine default is the program minimum');
 assert.strictEqual(incrementKg('Bayesian Cable Curl', null, rules), 2.5);
 assert.strictEqual(incrementKg('Custom Lift', {incrementKg: 1.25}, rules), 1.25, 'exercise increment wins');
+
+assert.strictEqual(parseDecimal('22,5'), 22.5);
+assert.strictEqual(parseDecimal('22.5'), 22.5);
+assert.strictEqual(parseDecimal('22,50'), 22.5);
+assert.strictEqual(parseDecimal(' 22,5 '), 22.5);
+assert.strictEqual(parseDecimal(''), null);
+assert.strictEqual(parseDecimal('abc'), null);
+assert.strictEqual(prefillWeight(parseDecimal('22,5'), 2.5), 25, 'a comma-typed weight still progresses by the program increment');
 
 assert.strictEqual(prefillWeight(40, 2.5), 42.5);
 assert.strictEqual(prefillWeight(100, 2.5), 102.5);
