@@ -99,6 +99,10 @@ label{font-size:14px;font-weight:650;color:var(--mut);display:block}
 .ov-name{flex:1;min-width:0;font-size:15px;font-weight:750;overflow-wrap:anywhere}
 .ov-prog{flex:none;font-variant-numeric:tabular-nums;font-size:14px;font-weight:800;color:var(--mut)}
 .ov-row.on .ov-prog,.ov-row.done .ov-prog{color:var(--acc)}
+.ov-row.skipped{background:#f8fafc}
+.ov-row.skipped .ov-name{text-decoration:line-through;color:var(--mut)}
+.ov-row.skipped .ov-prog{font-size:12px;letter-spacing:.03em;text-transform:uppercase;color:var(--mut)}
+.skip-note{font-size:14px;font-weight:750;color:var(--mut);margin-top:2px}
 .ex-nav{display:grid;grid-template-columns:56px 1fr 56px;gap:8px;align-items:center}
 .ex-nav .nav-arrow{min-height:56px;min-width:56px;border-radius:14px;border:1px solid var(--line);background:#fff;font-size:32px;font-weight:700;line-height:1;color:var(--txt)}
 .ex-kicker{font-size:13px;font-weight:750;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
@@ -120,6 +124,7 @@ label{font-size:14px;font-weight:650;color:var(--mut);display:block}
 .swap-list{display:flex;flex-direction:column;gap:8px}
 .swap-opt{width:100%;min-height:44px;text-align:left;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:#fff;font-weight:700;font-size:15px;line-height:1.25}
 .swap-opt.on{border-color:var(--acc);background:#ecfdf3;color:var(--acc)}
+.swap-opt.swap-skip{background:#f8fafc;border-style:dashed;color:#374151}
 dialog:has(.swap-list){width:min(360px,94vw);padding:14px}
 dialog:has(.swap-list) .btn{margin-top:10px}
 .meta-line{margin:8px 0 0;font-size:15px;font-weight:650;color:#1f2937}
@@ -152,7 +157,7 @@ dialog:has(.swap-list) .btn{margin-top:10px}
 .end-row{display:flex;gap:8px;margin-top:12px}
 .end-row .btn{flex:1}
 
-.dock{position:fixed;left:0;right:0;bottom:calc(var(--nav) + env(safe-area-inset-bottom));z-index:7;padding:8px 12px;background:rgba(244,245,247,.96);backdrop-filter:blur(10px);border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.dock{position:fixed;left:0;right:0;bottom:calc(var(--nav) + env(safe-area-inset-bottom));z-index:12;padding:8px 12px;background:rgba(244,245,247,.96);backdrop-filter:blur(10px);border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
 button.btn.log-btn{width:100%;min-height:64px;border-radius:16px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;padding:8px 12px}
 .log-kicker{font-size:12px;font-weight:750;letter-spacing:.04em;text-transform:uppercase;opacity:.85}
 .log-main{font-size:20px;font-weight:800;letter-spacing:-.02em;line-height:1.15}
