@@ -6,6 +6,7 @@ const P = SPEC.program;
 const AC = window.MinMaxAccount;
 const PF = window.MinMaxPrefill;
 const VV = window.MinMaxVariations;
+const PG = window.MinMaxProgress;
 const SEQ = MinMaxNext.trainingDays(P.weeklySplit);
 const DAY_LABEL = {upper1:'Upper 1',lower1:'Lower 1',upper2:'Upper 2',lower2:'Lower 2',armsDelts:'Arms + Delts'};
 const MUSCLE_LABEL = m => m.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
@@ -160,7 +161,7 @@ const fmtLoad = b => (Array.isArray(b.loadKg)?b.loadKg.join('→'):b.loadKg)+' k
 
 /* ---------- UI shell ---------- */
 let tab = 'log';
-const ui = { date: todayISO(), dayId: null, progEx: null, focusId: null, pad: {}, edit: null, restUntil: 0, restTotal: 0, restLabel: '', undo: null, _hold: null, logging: false, homeDay: null };
+const ui = { date: todayISO(), dayId: null, progSlot: null, focusId: null, pad: {}, edit: null, restUntil: 0, restTotal: 0, restLabel: '', undo: null, _hold: null, logging: false, homeDay: null };
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{ tab=b.dataset.tab; document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('active',x===b)); render(); scrollTo(0,0); });
 function toast(m, opts){
   const t=$('#toast');
@@ -959,111 +960,173 @@ function historyLine(e){
   if(!groups.length) return esc(e.performedExercise)+cut+': —';
   return groups.map(g=>esc(g.name)+cut+': '+g.bits.join(', ')).join('<br>');
 }
-function loggedVariationNames(){
-  const names=[];
-  S.sessions.forEach(s=>{
-    if(!s || s.status==='skipped') return;
-    (s.entries||[]).forEach(e=>workSets(e).forEach(x=>{
-      const n=VV.variationOf(e,x);
-      if(n && !names.includes(n)) names.push(n);
-    }));
+/* One exposure per session for this variation. Skipped exercises and skipped sessions are ignored. */
+function slotHistory(performedName){
+  if (!performedName) return [];
+  const out=[];
+  S.sessions.filter(s=>s && s.status!=='skipped').sort(cmpSes).forEach(s=>{
+    const sets=[];
+    (s.entries||[]).forEach(e=>{
+      if (e.skipped) return;
+      VV.workingSetsFor(e, performedName).forEach(x=>sets.push({weight:x.weightKg, reps:x.reps}));
+    });
+    const top=PG.topSet(sets);
+    if (top) out.push(Object.assign({date:s.date}, top));
   });
-  return names.sort((a,b)=>a.localeCompare(b));
+  return out;
+}
+/* The exercise actually done for this day: the remembered swap, else the variation on the latest logged session, else the program name. */
+function progressName(row, dayId){
+  const remember=!S.settings || S.settings.stickySubs!==false;
+  const explicit=remember ? VV.variationChoice(S.settings && S.settings.variationMemory, dayId, row && row.exerciseId) : null;
+  if (explicit) return explicit;
+  const recent=latestLoggedName(row && row.exerciseId, dayId);
+  if (recent) return recent;
+  return row && row.name ? row.name : '';
+}
+function latestLoggedName(exerciseId, dayId){
+  if (!exerciseId) return null;
+  const ss=S.sessions.filter(s=>s && s.status!=='skipped' && s.dayId===dayId).sort(cmpSes).reverse();
+  for (const s of ss){
+    const e=(s.entries||[]).find(en=>en.plannedExerciseId===exerciseId);
+    if (!e || e.skipped) continue;
+    const sets=(e.sets||[]).filter(x=>x.setType==='working' && num(x.weightKg)!=null);
+    if (!sets.length) continue;
+    const name=VV.variationOf(e, sets[sets.length-1]);
+    if (name) return name;
+  }
+  return null;
+}
+/* Other logged names for this slot. Program alternatives with no sets are omitted. */
+function otherVariations(exerciseId, currentName){
+  const latest={};
+  S.sessions.filter(s=>s && s.status!=='skipped').sort(cmpSes).forEach(s=>{
+    (s.entries||[]).forEach(e=>{
+      if (e.plannedExerciseId!==exerciseId || e.skipped) return;
+      const grouped={};
+      (e.sets||[]).forEach(x=>{
+        if (x.setType!=='working' || num(x.weightKg)==null) return;
+        const name=VV.variationOf(e, x);
+        if (!name || norm(name)===norm(currentName)) return;
+        const key=norm(name);
+        (grouped[key]=grouped[key]||{name, sets:[]}).sets.push({weight:x.weightKg, reps:x.reps});
+      });
+      const stamp=(s.date||'')+(s.startTime||'');
+      Object.keys(grouped).forEach(key=>{
+        const top=PG.topSet(grouped[key].sets);
+        if (!top) return;
+        if (!latest[key] || stamp>=latest[key].stamp) latest[key]={name:grouped[key].name, stamp, point:top};
+      });
+    });
+  });
+  return Object.keys(latest).sort().map(key=>({name:latest[key].name, point:latest[key].point}));
+}
+const PROG_LABEL={progressing:'Progressing', stalled:'Stalled', regressing:'Regressing', new:'New'};
+function progressBoard(){
+  const week=weekFor(todayISO())||2;
+  return SEQ.map(dayId=>{
+    const slots=prescription(week, dayId).map(row=>{
+      const name=progressName(row, dayId);
+      const points=slotHistory(name);
+      return {dayId, exerciseId:row.exerciseId, name, points, status:PG.trendStatus(points), others:otherVariations(row.exerciseId, name), key:dayId+':'+row.exerciseId};
+    });
+    return {dayId, label:DAY_LABEL[dayId]||dayId, slots};
+  });
+}
+function sparkSvg(points){
+  const g=PG.sparkGeometry(points);
+  const open=`<svg class="spark" viewBox="0 0 68 24" width="68" height="24" aria-hidden="true">`;
+  if (!g.length) return open+`<line x1="4" y1="12" x2="64" y2="12" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 3"/></svg>`;
+  if (g.length===1) return open+`<circle cx="${g[0].x}" cy="${g[0].y}" r="2.5" fill="currentColor"/></svg>`;
+  const last=g[g.length-1];
+  return open+`<polyline points="${g.map(p=>p.x+','+p.y).join(' ')}" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/><circle cx="${last.x}" cy="${last.y}" r="2.2" fill="currentColor"/></svg>`;
 }
 function renderProgress(){
+  charts.forEach(c=>c.destroy()); charts=[];
   const v=$('#view');
-  const names = loggedVariationNames();
-  if (!ui.progEx || !names.includes(ui.progEx)) ui.progEx = names[0];
-  const weeks = [...new Set(S.sessions.map(s=>mondayOf(s.date)))].sort();
-  if (!ui.volWeek) ui.volWeek = weeks[weeks.length-1] || mondayOf(todayISO());
-  v.innerHTML = `
-  <div class="card"><div class="row between"><h2 style="margin:0">Progress</h2>
-    <select id="exSel" style="max-width:260px">${names.map(n=>`<option ${n===ui.progEx?'selected':''}>${esc(n)}</option>`).join('')}</select></div></div>
-  <div class="charts">
-    <div class="card"><h3>1 · Estimated 1RM trend</h3><div class="small muted">Epley w×(1+(reps+RIR)/30), top working set</div><div class="chartbox"><canvas id="c1"></canvas></div></div>
-    <div class="card"><h3>2 · Top-set load & reps</h3><div class="chartbox"><canvas id="c2"></canvas></div></div>
-    <div class="card"><h3>3 · Weekly hard sets per muscle vs target</h3>
-      <div class="row small muted">Week of <select id="volW" style="width:auto;min-height:44px;padding:8px;font-size:16px">${weeks.map(w=>`<option value="${w}" ${w===ui.volWeek?'selected':''}>${fmtD(w)}</option>`).join('')}</select></div>
-      <div class="small muted">Primary muscle = 1 set, others 0.5. <b>Targets are estimates</b> derived from the program layout.</div><div class="chartbox" style="height:320px"><canvas id="c3"></canvas></div></div>
-    <div class="card"><h3>4 · PR feed</h3><ul class="feed" id="prFeed"></ul></div>
-    <div class="card"><h3>5 · Adherence calendar</h3><div id="cal"></div></div>
-    <div class="card"><h3>6 · RIR accuracy</h3><div class="small muted">Logged RIR − target RIR per working set (positive = left more in the tank)</div><div class="chartbox"><canvas id="c6"></canvas></div></div>
-    <div class="card"><h3>7 · Substitution rate</h3><div class="chartbox"><canvas id="c7"></canvas></div></div>
-    <div class="card"><h3>8 · Progression status</h3><div id="progTbl" style="max-height:320px;overflow:auto"></div></div>
-    <div class="card"><h3>9 · Wellness</h3><div class="small muted">Soreness / energy (1–5), bodyweight, weekly working sets</div><div class="chartbox"><canvas id="c9"></canvas></div></div>
-    <div class="card"><h3>10 · Logging gaps</h3><ul class="feed" id="gaps"></ul></div>
+  const days=progressBoard();
+  const slots=days.flatMap(d=>d.slots);
+  if (ui.progSlot && !slots.some(s=>s.key===ui.progSlot)) ui.progSlot=null;
+  const count=status=>slots.filter(s=>s.status===status).length;
+  const nProg=count('progressing'), nStall=count('stalled'), nReg=count('regressing'), nNew=count('new');
+  const attention=slots.filter(s=>s.status==='stalled'||s.status==='regressing')
+    .sort((a,b)=>(a.status===b.status?0:a.status==='regressing'?-1:1) || days.findIndex(d=>d.dayId===a.dayId)-days.findIndex(d=>d.dayId===b.dayId));
+  const dayMeta=list=>{
+    const bits=['progressing','stalled','regressing','new'].map(st=>{
+      const n=list.filter(s=>s.status===st).length;
+      return n?n+' '+PROG_LABEL[st].toLowerCase():'';
+    }).filter(Boolean);
+    return bits.join(' · ');
+  };
+  v.innerHTML=`
+  <div class="card prog-summary">
+    <h2>Progress</h2>
+    <p class="prog-lead">${nProg} progressing · ${nStall} stalled · ${nReg} regressing</p>
+    <div class="prog-counts">
+      <div class="prog-count s-progressing"><b>${nProg}</b><span>Progressing</span></div>
+      <div class="prog-count s-stalled"><b>${nStall}</b><span>Stalled</span></div>
+      <div class="prog-count s-regressing"><b>${nReg}</b><span>Regressing</span></div>
+    </div>
+    <p class="small muted prog-new">${nNew} new or not enough data</p>
+    <h3 class="prog-attn-h">Needs attention</h3>
+    ${attention.length?attention.map(s=>`<button type="button" class="attn" data-goto="${esc(s.key)}"><span><b>${esc(s.name)}</b><span class="muted">${esc(DAY_LABEL[s.dayId]||s.dayId)}</span></span><span class="prog-chip s-${s.status}">${PROG_LABEL[s.status]}</span></button>`).join(''):'<p class="small muted">Nothing stalled or regressing.</p>'}
+  </div>
+  ${days.map(d=>`<section class="card prog-day" id="prog-day-${d.dayId}"><h3>${esc(d.label)}</h3><p class="prog-day-meta">${esc(dayMeta(d.slots))}</p>
+    ${d.slots.map(s=>{
+      const open=ui.progSlot===s.key;
+      const recent=PG.recentLabel(s.points);
+      const delta=PG.sinceLabel(s.points)+(recent?' · '+recent:'');
+      return `<div class="prog-slot" id="prog-row-${s.dayId}-${s.exerciseId}">
+        <button type="button" class="prog-row s-${s.status}${open?' open':''}" data-slot="${esc(s.key)}" aria-expanded="${open?'true':'false'}">
+          <span class="prog-name">${esc(s.name)}</span>
+          <span class="prog-chip s-${s.status}">${PROG_LABEL[s.status]}</span>
+          <span class="prog-now">${esc(PG.formatSet(s.points[s.points.length-1]))}</span>
+          <span class="prog-delta">${esc(delta)}</span>
+          ${sparkSvg(s.points)}
+        </button>
+        ${open?progressDetail(s):''}
+      </div>`;
+    }).join('')}
+  </section>`).join('')}`;
+  v.querySelectorAll('[data-goto]').forEach(b=>b.onclick=()=>{
+    const dayId=b.dataset.goto.split(':')[0];
+    const el=document.getElementById('prog-day-'+dayId);
+    if (el) el.scrollIntoView({behavior:'smooth', block:'start'});
+  });
+  v.querySelectorAll('[data-slot]').forEach(b=>b.onclick=()=>{
+    ui.progSlot = ui.progSlot===b.dataset.slot ? null : b.dataset.slot;
+    const y=window.scrollY;
+    renderProgress();
+    window.scrollTo(0, y);
+  });
+  const open=slots.find(s=>s.key===ui.progSlot);
+  if (open && open.points.length && $('#progC1')){
+    Chart.defaults.color='#3f4754'; Chart.defaults.borderColor='#e5e7eb'; Chart.defaults.font.family='system-ui';
+    const labels=open.points.map(p=>fmtD(p.date));
+    const base={responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{boxWidth:10}}}};
+    charts.push(new Chart($('#progC1'),{type:'line', data:{labels, datasets:[{label:'e1RM kg', data:open.points.map(p=>p.scoredBy==='epley'?+p.score.toFixed(1):null), borderColor:'#166534', backgroundColor:'#166534', tension:.25, pointRadius:3, spanGaps:true}]}, options:{...base, plugins:{...base.plugins, legend:{display:false}}, scales:{y:{grace:'20%', title:{display:true, text:'e1RM kg'}}}}}));
+    charts.push(new Chart($('#progC2'),{type:'line', data:{labels, datasets:[
+      {label:'Top load kg', data:open.points.map(p=>p.weight), borderColor:'#1d4ed8', backgroundColor:'#1d4ed8', yAxisID:'y', pointRadius:3, tension:.25},
+      {label:'Reps', data:open.points.map(p=>p.reps), borderColor:'#9a3412', backgroundColor:'#9a3412', yAxisID:'y1', borderDash:[4,3], pointRadius:3, tension:.25}
+    ]}, options:{...base, scales:{y:{grace:'20%', title:{display:true,text:'kg'}}, y1:{position:'right', min:0, grace:'10%', grid:{drawOnChartArea:false}, title:{display:true,text:'reps'}, ticks:{precision:0}}}}}));
+  }
+}
+function othersHtml(others){
+  if (!others || !others.length) return '';
+  return `<div class="prog-others"><p>Other variations</p><ul>${others.map(o=>`<li><span>${esc(o.name)}</span><b>${esc(PG.formatSet(o.point))}</b></li>`).join('')}</ul></div>`;
+}
+function progressDetail(slot){
+  const pts=slot.points;
+  const others=othersHtml(slot.others);
+  if (!pts.length) return `<div class="prog-detail" id="prog-detail"><p class="small muted">No sessions yet for ${esc(slot.name)}.</p>${others}</div>`;
+  return `<div class="prog-detail" id="prog-detail">
+    <p class="small muted">Estimated 1RM and top set · ${esc(slot.name)}</p>
+    <ul class="prog-sessions">${pts.map(p=>`<li><span>${esc(fmtD(p.date))}</span><b>${esc(PG.formatSet(p))}</b>${p.scoredBy==='epley'?`<span class="muted">e1RM ${p.score.toFixed(1)}</span>`:''}</li>`).join('')}</ul>
+    ${others}
+    <div class="chartbox prog-chart"><canvas id="progC1"></canvas></div>
+    <p class="small muted">Top-set load and reps</p>
+    <div class="chartbox prog-chart"><canvas id="progC2"></canvas></div>
   </div>`;
-  $('#exSel').onchange=ev=>{ui.progEx=ev.target.value; renderProgress();};
-  const vw=$('#volW'); if (vw) vw.onchange=ev=>{ui.volWeek=ev.target.value; renderProgress();};
-  Chart.defaults.color='#6b7280'; Chart.defaults.borderColor='#e5e7eb'; Chart.defaults.font.family='system-ui';
-  const base={responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{boxWidth:12}}}};
-  // 1 & 2
-  const ex = ui.progEx ? exposures(ui.progEx) : [];
-  const pts = ex.map(x=>{ const top = x.ws.reduce((a,s)=> e1rm(+s.weightKg,+s.reps,+s.rir) > e1rm(+a.weightKg,+a.reps,+a.rir) ? s : a); return {d:x.ses.date, e:e1rm(+top.weightKg, num(top.reps)||0, num(top.rir)||0), w:+top.weightKg, r:num(top.reps), hasReps:num(top.reps)!=null}; });
-  const bl = S.baselineBests.find(b=>norm(b.exercise)===norm(ui.progEx||''));
-  charts.push(new Chart($('#c1'),{type:'line',data:{labels:pts.map(p=>fmtD(p.d)),datasets:[{label:'e1RM kg',data:pts.map(p=>p.hasReps?+p.e.toFixed(1):null),borderColor:'#16a34a',backgroundColor:'#16a34a',tension:.3,spanGaps:true}]},options:{...base,plugins:{...base.plugins,subtitle:{display:!pts.some(p=>p.hasReps),text:'Log reps to compute e1RM',color:'#d97706'}}}}));
-  charts.push(new Chart($('#c2'),{type:'line',data:{labels:pts.map(p=>fmtD(p.d)),datasets:[{label:'Top load kg',data:pts.map(p=>p.w),borderColor:'#2563eb',backgroundColor:'#2563eb',yAxisID:'y'},{label:'Reps',data:pts.map(p=>p.r),borderColor:'#c026d3',backgroundColor:'#c026d3',yAxisID:'y1',borderDash:[4,4]}].concat(bl?[{label:'Recent best',data:pts.map(()=>Array.isArray(bl.loadKg)?bl.loadKg[bl.loadKg.length-1]:bl.loadKg),borderColor:'#fbbf2488',pointRadius:0,borderDash:[2,4]}]:[])},options:{...base,scales:{y:{title:{display:true,text:'kg'}},y1:{position:'right',grid:{display:false},title:{display:true,text:'reps'}}}}}));
-  // 3 volume
-  const tgt = SPEC.metrics.find(m=>m.id==='weekly_hard_sets_vs_target').targets[String(weekFor(ui.volWeek)||2)];
-  const vol={}; Object.keys(tgt).forEach(k=>vol[k]=0);
-  S.sessions.filter(s=>s.status!=='skipped' && mondayOf(s.date)===ui.volWeek).forEach(s=>s.entries.forEach(e=>{
-    const r = e.plannedExerciseId?exById[e.plannedExerciseId]:findExIdByName(e.performedExercise)&&exById[findExIdByName(e.performedExercise)];
-    const ms = r?r.muscles:[]; const n=workSets(e).length;
-    ms.forEach((m,i)=>{ vol[m]=(vol[m]||0)+n*(i===0?1:.5); });
-  }));
-  const mk=Object.keys(tgt);
-  charts.push(new Chart($('#c3'),{type:'bar',data:{labels:mk.map(MUSCLE_LABEL),datasets:[{label:'Done',data:mk.map(k=>vol[k]),backgroundColor:'#16a34a'},{label:'Target (est.)',data:mk.map(k=>tgt[k]),backgroundColor:'#cbd5e1'}]},options:{...base,indexAxis:'y'}}));
-  // 4 PR feed
-  $('#prFeed').innerHTML = prFeed().map(p=>`<li>${p}</li>`).join('') || '<li class="muted">No PRs yet.</li>';
-  // 5 calendar
-  $('#cal').innerHTML = calendar();
-  // 6 RIR accuracy
-  const dev={};
-  S.sessions.forEach(s=>s.entries.forEach(e=>{ const r=targetFor(e.plannedExerciseId, sesWeek(s)||2); if(!r) return; let k=0; e.sets.forEach(x=>{ if(x.setType!=='working') return; const t=k===0?r.rirSet1:(r.rirSet2??r.rirSet1); k++; if(num(x.rir)==null||t==null) return; const name=VV.variationOf(e,x); (dev[name]=dev[name]||[]).push(+x.rir-t); }); }));
-  const dk=Object.keys(dev);
-  charts.push(new Chart($('#c6'),{type:'bar',data:{labels:dk.length?dk:['(no RIR logged yet)'],datasets:[{label:'avg RIR deviation',data:dk.map(k=>+(dev[k].reduce((a,b)=>a+b,0)/dev[k].length).toFixed(2)),backgroundColor:dk.map(k=>{const a=dev[k].reduce((x,y)=>x+y,0)/dev[k].length;return Math.abs(a)<=.5?'#16a34a':'#d97706'})}]},options:{...base,indexAxis:'y'}}));
-  // 7 substitution rate
-  const sub={};
-  S.sessions.forEach(s=>s.entries.forEach(e=>{ if(!e.plannedName) return; const o=sub[e.plannedName]=sub[e.plannedName]||{n:0,s:0}; o.n++; if(e.substitutionUsed!=='none') o.s++; }));
-  const sk=Object.keys(sub);
-  const tot=sk.reduce((a,k)=>a+sub[k].n,0), tsub=sk.reduce((a,k)=>a+sub[k].s,0);
-  charts.push(new Chart($('#c7'),{type:'bar',data:{labels:sk,datasets:[{label:`% substituted (overall ${tot?Math.round(100*tsub/tot):0}%)`,data:sk.map(k=>Math.round(100*sub[k].s/sub[k].n)),backgroundColor:'#2563eb'}]},options:{...base,indexAxis:'y',scales:{x:{max:100}}}}));
-  // 8 progression table
-  const rows = names.map(n=>{ const e=S.sessions.flatMap(s=>s.entries).find(x=>workSets(x).some(set=>norm(VV.variationOf(x,set))===norm(n))); return [n, progression(n, e&&e.plannedExerciseId)]; });
-  S.baselineBests.forEach(b=>{ if(!names.some(n=>norm(n)===norm(b.exercise))) rows.push([b.exercise, progression(b.exercise, b.exerciseId)]); });
-  const bcls={add:'b-add',hold:'b-hold',stall:'b-stall',reps:'b-reps',na:'b-na',deload:'b-na'}, blab={add:'add load',hold:'hold · ext. range',stall:'stalled',reps:'add reps',na:'need reps',deload:'deload'};
-  $('#progTbl').innerHTML = `<table><tr><th>Exercise</th><th>Last kg</th><th>Status</th></tr>${rows.map(([n,p])=>`<tr><td>${esc(n)}</td><td>${p.load!=null?fmt(p.load):'—'}</td><td><span class="badge ${bcls[p.status]}">${blab[p.status]}</span></td></tr>`).join('')}</table>`;
-  // 9 wellness
-  const ws=[...S.sessions].filter(s=>s.status!=='skipped').sort(cmpSes);
-  const meas=S.measurements;
-  charts.push(new Chart($('#c9'),{type:'line',data:{labels:ws.map(s=>fmtD(s.date)),datasets:[
-    {label:'Soreness',data:ws.map(s=>s.soreness),borderColor:'#dc2626',yAxisID:'y',spanGaps:true},
-    {label:'Energy',data:ws.map(s=>s.energy),borderColor:'#16a34a',yAxisID:'y',spanGaps:true},
-    {label:'Bodyweight kg',data:ws.map(s=>s.bodyweightKg ?? (meas.find(m=>m.weekStart===mondayOf(s.date))||{}).bodyweightAvgKg ?? null),borderColor:'#2563eb',yAxisID:'y1',spanGaps:true},
-    {label:'Working sets',type:'bar',data:ws.map(s=>s.entries.reduce((a,e)=>a+workSets(e).length,0)),backgroundColor:'#0000001a',yAxisID:'y2'}]},
-    options:{...base,scales:{y:{min:0,max:5},y1:{position:'right',grid:{display:false}},y2:{display:false}}}}));
-  // 10 gaps
-  $('#gaps').innerHTML = loggingGaps().map(g=>`<li>⚠️ ${esc(g.text)}</li>`).join('') + S.sessions.filter(s=>s.loggedLate).map(s=>`<li class="muted">↩︎ ${fmtD(s.date)} ${DAY_LABEL[s.dayId]} logged late</li>`).join('') || '<li class="muted">No gaps 🎉</li>';
-}
-function prFeed(){
-  const best={}, out=[];
-  S.baselineBests.forEach(b=>{ best[norm(b.exercise)]={load:Array.isArray(b.loadKg)?Math.max(...b.loadKg):b.loadKg,e1:0,repsAt:{}}; });
-  [...S.sessions].sort(cmpSes).forEach(s=>{ if(s.status==='skipped') return; s.entries.forEach(e=>{
-    workSets(e).forEach(x=>{ const name=VV.variationOf(e,x); const k=norm(name); const b=best[k]||(best[k]={load:0,e1:0,repsAt:{},fresh:true}); const w=+x.weightKg, r=num(x.reps);
-      if (w>b.load){ out.push(`🏆 <b>${esc(name)}</b> load PR ${fmt(w)} kg${x.perSide?' /side':''} <span class="muted">${fmtD(s.date)}</span>`); b.load=w; }
-      if (r!=null){ if (b.repsAt[w]!=null && r>b.repsAt[w]) out.push(`💪 <b>${esc(name)}</b> rep PR ${r} @ ${fmt(w)} kg <span class="muted">${fmtD(s.date)}</span>`); b.repsAt[w]=Math.max(b.repsAt[w]||0,r);
-        const e1=e1rm(w,r,num(x.rir)||0); if (b.e1 && e1>b.e1) out.push(`📈 <b>${esc(name)}</b> e1RM PR ${e1.toFixed(1)} kg <span class="muted">${fmtD(s.date)}</span>`); b.e1=Math.max(b.e1,e1); }
-    }); }); });
-  const baseline = S.baselineBests.map(b=>`📌 <b>${esc(b.exercise)}</b> recent best ${fmtLoad(b)}${b.status==='stalled'?' <span class="badge b-stall">stalled</span>':''}${b.mapsTo?` <span class="muted small">→ ${esc(b.mapsTo)}</span>`:''}`);
-  return out.reverse().concat(baseline);
-}
-function calendar(){
-  const end = mondayOf(todayISO()); let html='<div class="cal"><span></span>'+['M','T','W','T','F','S','S'].map(d=>`<span style="text-align:center">${d}</span>`).join('');
-  const byDate={}; S.sessions.forEach(s=>{ const cur=byDate[s.date]; const rank={completed:3,partial:2,skipped:1}; if(!cur||rank[s.status]>rank[cur.status]) byDate[s.date]=s; });
-  for (let i=11;i>=0;i--){ const wk=addDays(end,-7*i); const w=weekFor(wk); html+=`<span style="padding-right:4px">${w?'W'+w:fmtD(wk).split(' ').slice(1).join(' ')}</span>`;
-    for (let d=0;d<7;d++){ const ds=addDays(wk,d); const s=byDate[ds]; html+=`<div class="d ${s?s.status:''} ${ds===todayISO()?'today':''}" title="${ds}${s?' '+DAY_LABEL[s.dayId]+' '+s.status:''}">${s?DAY_LABEL[s.dayId].replace(/[^A-Z0-9]/g,''):''}</div>`; } }
-  const done=S.sessions.filter(s=>s.status!=='skipped').length, sk=S.sessions.filter(s=>s.status==='skipped').length;
-  return html+`</div><div class="legend"><span><i style="background:var(--acc)"></i>done</span><span><i style="background:var(--warn)"></i>partial</span><span><i style="background:var(--bad)"></i>skipped</span><span>${done} trained · ${sk} skipped · plan 5/wk</span></div>`;
 }
 
 /* ---------- SETTINGS ---------- */
@@ -1111,7 +1174,7 @@ function renderSettings(){
 function resetUi(){
   ui.date=todayISO();
   ui.dayId=null;
-  ui.progEx=null;
+  ui.progSlot=null;
   ui.focusId=null;
   ui.pad={};
   ui.edit=null;
