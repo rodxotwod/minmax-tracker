@@ -260,7 +260,11 @@ button.prog-row.open{background:#f8fafc}
 .prog-row.s-stalled .spark{color:#b45309}
 .prog-row.s-regressing .spark{color:#b91c1c}
 .prog-row.s-new .spark{color:#9ca3af}
-.prog-also{grid-column:1 / -1;font-size:12px;font-weight:650;color:var(--mut)}
+.prog-others{margin:8px 0 4px;color:var(--mut)}
+.prog-others p{margin:0 0 2px;font-size:12px;font-weight:700}
+.prog-others ul{list-style:none;margin:0;padding:0}
+.prog-others li{display:flex;justify-content:space-between;gap:8px;padding:2px 0;font-size:13px;font-weight:650}
+.prog-others b{font-weight:700;font-variant-numeric:tabular-nums}
 .prog-detail{padding:2px 2px 10px}
 .prog-detail .prog-chart{height:168px}
 .prog-sessions{list-style:none;margin:6px 0 8px;padding:0}

@@ -975,30 +975,60 @@ function slotHistory(performedName){
   });
   return out;
 }
-function otherVariationNames(exerciseId, currentName){
-  const seen=[];
-  S.sessions.forEach(s=>{
-    if (!s || s.status==='skipped') return;
+/* The exercise actually done for this day: the remembered swap, else the variation on the latest logged session, else the program name. */
+function progressName(row, dayId){
+  const remember=!S.settings || S.settings.stickySubs!==false;
+  const explicit=remember ? VV.variationChoice(S.settings && S.settings.variationMemory, dayId, row && row.exerciseId) : null;
+  if (explicit) return explicit;
+  const recent=latestLoggedName(row && row.exerciseId, dayId);
+  if (recent) return recent;
+  return row && row.name ? row.name : '';
+}
+function latestLoggedName(exerciseId, dayId){
+  if (!exerciseId) return null;
+  const ss=S.sessions.filter(s=>s && s.status!=='skipped' && s.dayId===dayId).sort(cmpSes).reverse();
+  for (const s of ss){
+    const e=(s.entries||[]).find(en=>en.plannedExerciseId===exerciseId);
+    if (!e || e.skipped) continue;
+    const sets=(e.sets||[]).filter(x=>x.setType==='working' && num(x.weightKg)!=null);
+    if (!sets.length) continue;
+    const name=VV.variationOf(e, sets[sets.length-1]);
+    if (name) return name;
+  }
+  return null;
+}
+/* Other logged names for this slot. Program alternatives with no sets are omitted. */
+function otherVariations(exerciseId, currentName){
+  const latest={};
+  S.sessions.filter(s=>s && s.status!=='skipped').sort(cmpSes).forEach(s=>{
     (s.entries||[]).forEach(e=>{
       if (e.plannedExerciseId!==exerciseId || e.skipped) return;
+      const grouped={};
       (e.sets||[]).forEach(x=>{
         if (x.setType!=='working' || num(x.weightKg)==null) return;
         const name=VV.variationOf(e, x);
         if (!name || norm(name)===norm(currentName)) return;
-        if (!seen.some(n=>norm(n)===norm(name))) seen.push(name);
+        const key=norm(name);
+        (grouped[key]=grouped[key]||{name, sets:[]}).sets.push({weight:x.weightKg, reps:x.reps});
+      });
+      const stamp=(s.date||'')+(s.startTime||'');
+      Object.keys(grouped).forEach(key=>{
+        const top=PG.topSet(grouped[key].sets);
+        if (!top) return;
+        if (!latest[key] || stamp>=latest[key].stamp) latest[key]={name:grouped[key].name, stamp, point:top};
       });
     });
   });
-  return seen;
+  return Object.keys(latest).sort().map(key=>({name:latest[key].name, point:latest[key].point}));
 }
 const PROG_LABEL={progressing:'Progressing', stalled:'Stalled', regressing:'Regressing', new:'New'};
 function progressBoard(){
   const week=weekFor(todayISO())||2;
   return SEQ.map(dayId=>{
     const slots=prescription(week, dayId).map(row=>{
-      const name=nameForSlot(row, dayId, todayISO());
+      const name=progressName(row, dayId);
       const points=slotHistory(name);
-      return {dayId, exerciseId:row.exerciseId, name, points, status:PG.trendStatus(points), others:otherVariationNames(row.exerciseId, name), key:dayId+':'+row.exerciseId};
+      return {dayId, exerciseId:row.exerciseId, name, points, status:PG.trendStatus(points), others:otherVariations(row.exerciseId, name), key:dayId+':'+row.exerciseId};
     });
     return {dayId, label:DAY_LABEL[dayId]||dayId, slots};
   });
@@ -1053,7 +1083,6 @@ function renderProgress(){
           <span class="prog-now">${esc(PG.formatSet(s.points[s.points.length-1]))}</span>
           <span class="prog-delta">${esc(delta)}</span>
           ${sparkSvg(s.points)}
-          ${s.others.length?`<span class="prog-also">Also logged: ${esc(s.others.join(', '))}</span>`:''}
         </button>
         ${open?progressDetail(s):''}
       </div>`;
@@ -1082,12 +1111,18 @@ function renderProgress(){
     ]}, options:{...base, scales:{y:{grace:'20%', title:{display:true,text:'kg'}}, y1:{position:'right', min:0, grace:'10%', grid:{drawOnChartArea:false}, title:{display:true,text:'reps'}, ticks:{precision:0}}}}}));
   }
 }
+function othersHtml(others){
+  if (!others || !others.length) return '';
+  return `<div class="prog-others"><p>Other variations</p><ul>${others.map(o=>`<li><span>${esc(o.name)}</span><b>${esc(PG.formatSet(o.point))}</b></li>`).join('')}</ul></div>`;
+}
 function progressDetail(slot){
   const pts=slot.points;
-  if (!pts.length) return `<div class="prog-detail" id="prog-detail"><p class="small muted">No sessions yet for ${esc(slot.name)}.</p></div>`;
+  const others=othersHtml(slot.others);
+  if (!pts.length) return `<div class="prog-detail" id="prog-detail"><p class="small muted">No sessions yet for ${esc(slot.name)}.</p>${others}</div>`;
   return `<div class="prog-detail" id="prog-detail">
     <p class="small muted">Estimated 1RM and top set · ${esc(slot.name)}</p>
     <ul class="prog-sessions">${pts.map(p=>`<li><span>${esc(fmtD(p.date))}</span><b>${esc(PG.formatSet(p))}</b>${p.scoredBy==='epley'?`<span class="muted">e1RM ${p.score.toFixed(1)}</span>`:''}</li>`).join('')}</ul>
+    ${others}
     <div class="chartbox prog-chart"><canvas id="progC1"></canvas></div>
     <p class="small muted">Top-set load and reps</p>
     <div class="chartbox prog-chart"><canvas id="progC2"></canvas></div>
