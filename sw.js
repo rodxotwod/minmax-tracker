@@ -1,5 +1,5 @@
 /* Network-first shell cache so a gym with poor signal can still open the logger. */
-const CACHE = 'minmax-shell-v18';
+const CACHE = 'minmax-shell-v19';
 const ASSETS = [
   './',
   './index.html',
@@ -9,6 +9,7 @@ const ASSETS = [
   './account-cache.js',
   './session-prefill.js',
   './variations.js',
+  './progress.js',
   './data/spec.js',
   './vendor/chart.umd.min.js',
   './vendor/supabase.js',
